@@ -1,14 +1,19 @@
   - [Getting started](#getting-started)
-  - [Raspberry Pi Vehicle Tracking System](#raspberry-pi-vehicle-tracking-system)
-  	- [Quick Start](#quick-start-for-raspberry-pi)
-		- [Automated Setup](#automated-setup)
-		- [Manual Installation](#manual-installation)
-		- [System Demo](#system-demo)
-	- [System Architecture](#system-architecture)
-	- [Performance Benchmarks](#performance-benchmarks)
-	- [Configuration](#configuration)
-	- [Troubleshooting](#troubleshooting)
- - [Technical Support](#technical-questions)
+  - [Android](#android)
+  	- [Sample applications](#sample-applications-android)
+		- [Benchmark](#sample-application-benchmark-android) (**Java**)
+		- [VideoParallel](#sample-application-videoparallel-android) (**Java**)
+		- [VideoSequential](#sample-application-videosequential-android) (**Java**)
+		- [ImageSnap](#sample-application-imagesnap-android) (**Java**)
+	- [Trying the samples](#trying-the-samples-android)
+	- [Adding the SDK to your project](#adding-the-sdk-to-your-project-android)
+	- [Using the Java API](#using-the-java-api-android)
+ - [Raspberry Pi (Raspbian OS), Linux, NVIDIA Jetson, Windows and others](#others)
+ 	- [Sample applications](#sample-applications-others)
+		- [Benchmark](#sample-application-benchmark-others) (**C++**)
+		- [Recognizer](#sample-application-recognizer-others) (**C++**, **C#**, **Java** and **Python**)
+	- [Using the C++ API](#using-the-cpp-api-others)
+ - [Getting help](#technical-questions)
   
  - Online web demo at https://www.doubango.org/webapps/alpr/
  - Full documentation for the SDK at https://www.doubango.org/SDKs/anpr/docs/
@@ -33,7 +38,8 @@ This opens the doors for the possibilities of running fully featured [ITS (Intel
 Being able to run all ITS applications on the device **will significantly lower the cost to acquire, deploy and maintain** such systems. 
 Please check [Device-based versus Cloud-based solution](https://www.doubango.org/SDKs/anpr/docs/Device-based_versus_Cloud-based_solution.html) section for more information about how this would reduce the cost.
 
-**🍓 Raspberry Pi Optimized**: This implementation is specifically designed for **Raspberry Pi 4/5 with 8GB RAM**, using only **4GB memory** for continuous 24/7 vehicle tracking operations.
+The next [video](https://doubango.org/videos/anpr/highway-x264.mp4) shows the [Recognizer sample](#sample-application-recognizer-others) running on Windows: <br />
+[![Recognizer Running on Windows](https://www.doubango.org/SDKs/anpr/docs/_images/vlcsnap-2020-09-10-03h27m56s176.jpg)](https://doubango.org/videos/anpr/highway-x264.mp4)
 <hr />
 
 The code is accelerated on **CPU**, **GPU**, **VPU** and **FPGA**, thanks to [CUDA](https://developer.nvidia.com/cuda-toolkit), [NVIDIA TensorRT](https://developer.nvidia.com/tensorrt) and [Intel OpenVINO](https://software.intel.com/content/www/us/en/develop/tools/openvino-toolkit/hardware.html).
@@ -52,104 +58,387 @@ Please check full documentation at https://www.doubango.org/SDKs/anpr/docs/
 
 <a name="getting-started"></a>
 # Getting started # 
-This repository contains the **UltimateALPR-SDK** with a specialized **Raspberry Pi Vehicle Tracking System** optimized for memory-efficient operation on 8GB Raspberry Pi devices using only 4GB RAM. 
+The SDK works on [many platforms](https://www.doubango.org/SDKs/anpr/docs/Architecture_overview.html#supportedoperatingsystems) and comes with support for many [programming languages](https://www.doubango.org/SDKs/anpr/docs/Architecture_overview.html#supportedprogramminglanguages) but the next sections focus on [Android](#android), [Raspberry Pi, Linux and Windows](#others). 
 
-<a name="raspberry-pi-vehicle-tracking-system"></a>
-# 🍓 Raspberry Pi Vehicle Tracking System #
+<a name="android"></a>
+# Android #
 
-A complete **vehicle entry/exit tracking solution** optimized for **Raspberry Pi 4/5 with 8GB RAM**, using only **4GB memory** for continuous 24/7 operations.
+The next sections are about Android and Java API.
 
-## 🎯 Key Features
-- **Memory Optimized**: Uses only 4GB RAM on 8GB Raspberry Pi
-- **High Performance**: 12fps continuous processing
-- **MongoDB Integration**: 10x faster than SQLite
-- **Dual Camera Setup**: Front and rear plate recognition
-- **Employee Management**: Automatic vehicle categorization
-- **Real-time Analytics**: Live performance monitoring
-- **24/7 Operation**: Designed for continuous deployment
+<a name="sample-applications-android"></a>
+## Sample applications (Android) ##
+The source code comes with #4 Android sample applications: [Benchmark](#sample-application-benchmark-android), [VideoParallel](#sample-application-videoparallel-android), [VideoSequential](sample-application-videosequential-android) and [ImageSnap](sample-application-imagesnap-android).
 
-## 🚀 System Demo Video
+<a name="sample-application-benchmark-android"></a>
+### Benchmark (Android) ###
+This application is used to check everything is ok and running as fast as expected. 
+The information about the maximum frame rate (**237fps** on Intel Xeon, **64fps** on Khadas VIM3 and **12fps** on Raspberry Pi 4) could be checked using this application. 
+It's open source and doesn't require registration or license key.
 
-**🎬 Watch the Raspberry Pi Vehicle Tracking System in action:**
+<a name="sample-application-videoparallel-android"></a>
+### VideoParallel (Android) ###
+This application should be used as reference code by any developer trying to add ultimateALPR to their products. It shows how to detect and recognize license plates in realtime using live video stream from the camera.
+Please check [Parallel versus sequential processing section](https://www.doubango.org/SDKs/anpr/docs/Parallel_versus_sequential_processing.html#parallelversussequentialprocessing) for more info about parellel mode.
 
+<a name="sample-application-videosequential-android"></a>
+### VideoSequential (Android) ###
+Same as VideoParallel but working on sequential mode which means slower. This application is provided to ease comparing the modes: Parallel versus Sequential.
+
+<a name="sample-application-imagesnap"></a>
+### ImageSnap (Android) ###
+This application reads and display the live video stream from the camera but only recognize an image from the stream on demand.
+
+<a name="trying-the-samples-android"></a>
+## Trying the samples (Android) ##
+To try the sample applications on Android:
+ 1. Open Android Studio and select "Open an existing Android Studio project"
+![alt text](https://www.doubango.org/SDKs/anpr/docs/_images/android_studio_open_existing_project.jpg "Open an existing Android Studio project")
+
+ 2. Navigate to **ultimateALPR-SDK/samples**, select **android** folder and click **OK**
+![alt text](https://www.doubango.org/SDKs/anpr/docs/_images/android_studio_select_samples_android.jpg "Select project")
+
+ 3. Select the sample you want to try (e.g. **videoparallel**) and press **run**. Make sure to have the device on **landscape mode** for better experience.
+![alt text](https://www.doubango.org/SDKs/anpr/docs/_images/android_studio_select_samples_videoparallel.jpg "Select sample")
+            
+<a name="adding-the-sdk-to-your-project-android"></a>
+## Adding the SDK to your project (Android) ##
+The SDK is distributed as an Android Studio module and you can add it as reference or you can also build it and add the AAR to your project. But, the easiest way to add the SDK to your project is by directly including the source.
+
+In your *build.gradle* file add:
+
+```python
+android {
+
+      # This is the block to add within "android { } " section
+      sourceSets {
+         main {
+             jniLibs.srcDirs += ['path-to-your-ultimateALPR-SDK/binaries/android/jniLibs']
+             java.srcDirs += ['path-to-your-ultimateALPR-SDK/java/android']
+             assets.srcDirs += ['path-to-your-ultimateALPR-SDK/assets/models']
+         }
+      }
+}
 ```
-🍓 Raspberry Pi 4 (8GB) Performance Demo:
-├── 📊 Memory Usage: 3.5GB / 8GB (43%)
-├── ⚡ Processing Speed: 12fps continuous
-├── 🗄️  Database: MongoDB (1000+ inserts/min)
-├── 📸 Dual Camera: Entry/Exit recognition
-└── 🎯 Target Achieved: <4GB RAM usage
+
+<a name="using-the-java-api-android"></a>
+## Using the Java API (Android) ##
+
+It's hard to be lost when you try to use the API as there are only 3 useful functions: init, process and deInit.
+
+The C++ API is defined [here](https://www.doubango.org/SDKs/anpr/docs/cpp-api.html).
+
+```java
+
+	import org.doubango.ultimateAlpr.Sdk.ULTALPR_SDK_IMAGE_TYPE;
+	import org.doubango.ultimateAlpr.Sdk.UltAlprSdkEngine;
+	import org.doubango.ultimateAlpr.Sdk.UltAlprSdkParallelDeliveryCallback;
+	import org.doubango.ultimateAlpr.Sdk.UltAlprSdkResult;
+
+	final static String CONFIG = "{" +
+		"\"debug_level\": \"info\"," + 
+		"\"gpgpu_enabled\": true," + 
+		"\"openvino_enabled\": true," +
+		"\"openvino_device\": \"CPU\"," +
+
+		"\"detect_minscore\": 0.1," + 
+		"\"detect_quantization_enabled\": true," + 
+		
+		"\"pyramidal_search_enabled\": true," +
+		"\"pyramidal_search_sensitivity\": 0.28," +
+		"\"pyramidal_search_minscore\": 0.5," +
+		"\"pyramidal_search_quantization_enabled\": true," +
+
+		"\"klass_lpci_enabled\": true," +
+		"\"klass_vcr_enabled\": true," +
+		"\"klass_vmmr_enabled\": true," +
+
+		"\"recogn_score_type\": \"min\"," + 
+		"\"recogn_minscore\": 0.3," + 
+		"\"recogn_rectify_enabled\": false," + 
+		"\"recogn_quantization_enabled\": true" + 
+	"}";
+
+	/**
+	* Parallel callback delivery function used to notify about new results.
+	* This callback will be called few milliseconds (before next frame is completely processed)
+	* after process function is called.
+	*/
+	static class MyUltAlprSdkParallelDeliveryCallback extends UltAlprSdkParallelDeliveryCallback {
+		@Override
+		public void onNewResult(UltAlprSdkResult result) { }
+	}
+
+	final MyUltAlprSdkParallelDeliveryCallback mCallback = new MyUltAlprSdkParallelDeliveryCallback(); // set to null to disable parallel mode
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		
+
+		// Initialize the engine
+		assert UltAlprSdkEngine.init(
+				getAssets(),
+				CONFIG,
+				mCallback
+		).isOK();
+	}
+
+	// Camera listener: https://developer.android.com/reference/android/media/ImageReader.OnImageAvailableListener
+	final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+
+		@Override
+		public void onImageAvailable(ImageReader reader) {
+				try {
+				    final Image image = reader.acquireLatestImage();
+				    if (image == null) {
+				        return;
+				    }
+
+				    // ANPR/ALPR recognition
+				    final Image.Plane[] planes = image.getPlanes();
+				    final UltAlprSdkResult result = UltAlprSdkEngine.process(
+				        ULTALPR_SDK_IMAGE_TYPE.ULTALPR_SDK_IMAGE_TYPE_YUV420P,
+				        planes[0].getBuffer(),
+				        planes[1].getBuffer(),
+				        planes[2].getBuffer(),
+				        image.getWidth(),
+				        image.getHeight(),
+				        planes[0].getRowStride(),
+				        planes[1].getRowStride(),
+				        planes[2].getRowStride(),
+				        planes[1].getPixelStride()
+				    );
+				    assert result.isOK();
+
+				    image.close();
+
+				} catch (final Exception e) {
+				   e.printStackTrace();
+				}
+		}
+	};
+
+	@Override
+	public void onDestroy() {
+		// DeInitialize the engine
+		assert UltAlprSdkEngine.deInit().isOK();
+
+		super.onDestroy();
+	}
 ```
 
-**Live System Monitoring:**
-- Real-time memory usage tracking
-- Vehicle journey creation and matching
-- Employee vehicle detection
-- Anomaly flagging and review
-- Performance metrics dashboard
+Again, please check the sample applications for [Android](#sample-applications-android), [Raspberry Pi, Linux and Windows](#sample-applications-others) and [full documentation](https://www.doubango.org/SDKs/anpr/docs/) for more information.
 
-## 🏗️ System Architecture
+<a name="others"></a>
+# Raspberry Pi (Raspbian OS), Linux, NVIDIA Jetson, Windows and others #
 
+<a name="sample-applications-others"></a>
+## Sample applications (Raspberry Pi, Linux, NVIDIA Jetson, Windows and others) ##
+The source code comes with #2 [C++ sample applications](samples/c++): [Benchmark](#sample-application-benchmark-others) and [Recognizer](#sample-application-recognizer-others). These sample applications can be used on all supported platforms: **Android**, **Windows**, **Raspberry Pi**, **iOS**, **OSX**, **Linux**...
+
+<a name="sample-application-benchmark-others"></a>
+### Benchmark (Raspberry Pi, Linux, NVIDIA Jetson, Windows and others) ###
+This application is used to check everything is ok and running as fast as expected. 
+The information about the maximum frame rate (**237fps** on Intel Xeon, **47fps** on Snapdragon 855, **152fps** on Jetson NX, **64fps** on Khadas VIM3, **30fps** on Jetson nano and **12fps** on Raspberry Pi 4) could be checked using this application. 
+It's open source and doesn't require registration or license key.
+
+For more information on how to build and run this sample please check [samples/c++/benchmark](samples/c++/benchmark/README.md).
+
+<a name="sample-application-recognizer-others"></a>
+### Recognizer (Raspberry Pi, Linux, NVIDIA Jetson, Windows and others) ###
+This is a command line application used to detect and recognize a license plate from any JPEG/PNG/BMP image.
+
+For more information on how to build and run this sample please check:
+ - C++: [samples/c++/recognizer](samples/c++/recognizer/README.md).
+ - C#: [samples/csharp/recognizer](samples/csharp/recognizer/README.md).
+ - Java: [samples/java/recognizer](samples/java/recognizer/README.md).
+ - Python: [samples/python/recognizer](samples/python/recognizer/README.md).
+
+<a name="using-the-cpp-api-others"></a>
+## Using the C++ API ##
+The C++ API is defined at https://www.doubango.org/SDKs/anpr/docs/cpp-api.html.
+
+```cpp
+	#include <ultimateALPR-SDK-API-PUBLIC.h> // Include the API header file
+
+	// JSON configuration string
+	// More info at https://www.doubango.org/SDKs/anpr/docs/Configuration_options.html
+	static const char* __jsonConfig =
+	"{"
+	"\"debug_level\": \"info\","
+	"\"debug_write_input_image_enabled\": false,"
+	"\"debug_internal_data_path\": \".\","
+	""
+	"\"num_threads\": -1,"
+	"\"gpgpu_enabled\": true,"
+	"\"openvino_enabled\": true,"
+	"\"openvino_device\": \"CPU\","
+	""
+	"\"detect_roi\": [0, 0, 0, 0],"
+	"\"detect_minscore\": 0.1,"
+	""
+	"\"pyramidal_search_enabled\": true,"
+	"\"pyramidal_search_sensitivity\": 0.28,"
+	"\"pyramidal_search_minscore\": 0.3,"
+	"\"pyramidal_search_min_image_size_inpixels\": 800,"
+	""
+	"\"klass_lpci_enabled\": true,"
+	"\"klass_vcr_enabled\": true,"
+	"\"klass_vmm_enabled\": true,"
+	""
+	"\"recogn_minscore\": 0.3,"
+	"\"recogn_score_type\": \"min\""
+	"}";
+
+	// Local variable
+	UltAlprSdkResult result;
+
+	// Initialize the engine (should be done once)
+	ULTALPR_SDK_ASSERT((result = UltAlprSdkEngine::init(
+		__jsonConfig
+	)).isOK());
+
+	// Processing (detection + recognition)
+	// Call this function for every video frame
+	const void* imageData = nullptr;
+	ULTALPR_SDK_ASSERT((result = UltAlprSdkEngine::process(
+			ULTMICR_SDK_IMAGE_TYPE_RGB24,
+			imageData,
+			imageWidth,
+			imageHeight
+		)).isOK());
+
+	// DeInit
+	// Call this function before exiting the app to free the allocate resources
+	// You must not call process() after calling this function
+	ULTALPR_SDK_ASSERT((result = UltAlprSdkEngine::deInit()).isOK());
 ```
-🏢 Vehicle Tracking Flow:
 
-📹 Camera 1 (Entry Front) ──┐
-                            ├──► 🧠 ALPR Processing ──► 🗄️ MongoDB
-📹 Camera 2 (Entry Rear) ───┘                          │
-                                                       ├──► 🔄 Journey Matching
-📹 Camera 1 (Exit Front) ───┐                          │
-                            ├──► 🧠 ALPR Processing ──► 🗄️ MongoDB
-📹 Camera 2 (Exit Rear) ────┘
-
-🎯 Memory Optimization:
-├── 📊 Batch Processing (10 events)
-├── 🗑️ Automatic Cleanup
-├── 📈 Real-time Monitoring
-└── 🔄 Garbage Collection
-```
+Again, please check the [sample applications](#Sample-applications) for more information on how to use the API.
 
 <a name="technical-questions"></a>
-# 🆘 Technical Support #
-
-## 📞 Getting Help
-- **GitHub Issues**: [Create an issue](https://github.com/VedprakashRAD/UltimateALPR-sdk/issues) for bugs or feature requests
-- **Raspberry Pi Forum**: [Community support](https://www.raspberrypi.org/forums/) for Pi-specific issues
-- **Documentation**: [Full SDK docs](https://www.doubango.org/SDKs/anpr/docs/)
-
-## 🔧 Quick Diagnostics
-```bash
-# System health check
-free -h                    # Memory usage
-sudo systemctl status vehicle-tracking  # Service status
-mongo --eval "db.stats()"  # Database status
-journalctl -u vehicle-tracking -f      # Live logs
-```
-
-## 📋 Common Solutions
-- **High Memory**: Restart service, check batch size
-- **MongoDB Issues**: Verify service status, check logs
-- **Performance**: Monitor temperature, adjust resolution
-- **Docker Problems**: Restart Docker daemon
+ # Technical questions #
+ Please check our [discussion group](https://groups.google.com/forum/#!forum/doubango-ai) or [twitter account](https://twitter.com/doubangotelecom?lang=en)
 
 ---
 
-# Raspberry Pi Optimized Vehicle Tracking System
+# UltimateALPR-SDK Vehicle Tracking System
 
-🚀 **Memory-Optimized for Raspberry Pi 8GB (Uses only 4GB RAM)** 🚀
+This project implements a comprehensive vehicle entry/exit tracking system using the UltimateALPR-SDK with MongoDB integration.
 
-This repository includes a comprehensive vehicle entry/exit tracking system implementation using the UltimateALPR-SDK, specifically optimized for **Raspberry Pi 4/5 with 8GB RAM** while using only **4GB of system memory**.
+## Project Structure
 
-## 🎯 Raspberry Pi Performance
+```
+ultimateALPR-sdk/
+├── src/
+│   ├── __init__.py
+│   ├── main.py                 # Main entry point
+│   ├── core/                   # Core SDK wrapper
+│   │   ├── __init__.py
+│   │   └── python_docker_wrapper.py
+│   ├── database/               # Database schema and configuration
+│   │   ├── __init__.py
+│   │   ├── database_schema.sql
+│   │   └── vehicle_tracking_config.py
+│   ├── tracking/               # Vehicle tracking logic
+│   │   ├── __init__.py
+│   │   ├── vehicle_tracking_system.py
+│   │   └── vehicle_tracking_system_mongodb.py
+│   ├── camera/                 # Camera processing systems
+│   │   ├── __init__.py
+│   │   ├── camera_live_system.py
+│   │   ├── camera_simulator.py
+│   │   ├── fully_automatic_system.py
+│   │   ├── working_alpr_system.py
+│   │   └── auto_detect_system.py
+│   ├── utils/                  # Utility scripts and tools
+│   │   ├── __init__.py
+│   │   ├── install_macos.sh
+│   │   ├── install_raspberry_pi.sh
+│   │   ├── raspberry_pi_setup.py
+│   │   ├── debug_docker_output.py
+│   │   ├── test_python_wrapper.py
+│   │   ├── test_setup.py
+│   │   └── demo_*.py
+│   └── ui/                     # User interface (future)
+│       └── __init__.py
+├── assets/                     # SDK assets (models, etc.)
+├── binaries/                   # SDK binaries
+├── captured_images/            # Captured vehicle images
+├── auto_captures/              # Automatic captures
+├── detected_plates/            # Detected license plates
+├── logs/                       # Log files
+├── backups/                    # Database backups
+├── processed_images/           # Processed images
+├── sample_images/              # Sample images
+├── requirements.txt            # Python dependencies
+├── arm64.Dockerfile            # Docker build file for ARM64
+├── simple.Dockerfile           # Simple Docker build file
+└── README.md                   # This file
+```
 
-- **Target Platform**: Raspberry Pi 4/5 (8GB RAM)
-- **Memory Usage**: Optimized to use only 4GB RAM
-- **Processing Speed**: 12fps on Raspberry Pi 4
-- **Database**: MongoDB for better performance and scalability
-- **Real-time Processing**: Continuous 24/7 operation
+## Features
 
-## System Overview
+1. **24/7 Camera Operation**: Continuous video recording
+2. **Dual Camera Setup**: Entry and exit monitoring with front/rear plate capture
+3. **AI-Based Detection**: Using the UltimateALPR-SDK for accurate plate recognition
+4. **Event Pairing**: Using time-window and vehicle attributes for accuracy
+5. **Employee Vehicle Management**: Automatic flagging and categorization
+6. **Anomaly Detection**: Identification of inconsistencies and manual review flagging
+7. **Database Management**: MongoDB storage for all vehicle events and journeys
 
-The vehicle tracking system implements a complete solution for monitoring vehicle entry and exit events using AI-based ALPR cameras. The system captures images from strategically placed cameras, processes them using the UltimateALPR-SDK, and maintains a MongoDB database of vehicle journeys.
+## Prerequisites
+
+1. Docker (required for running the ALPR SDK)
+2. Python 3.6 or later
+3. MongoDB (for the MongoDB-based tracking system)
+4. Git
+
+## Setup Instructions
+
+1. Ensure Docker is running
+
+2. Create and activate a Python virtual environment:
+   ```bash
+   python3 -m venv alpr_venv
+   source alpr_venv/bin/activate  # On Windows: alpr_venv\Scripts\activate
+   ```
+
+3. Install required Python packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Build the ARM64 Docker image (for Apple Silicon Macs):
+   ```bash
+   docker build -t alpr-arm64 -f arm64.Dockerfile .
+   ```
+
+5. Start MongoDB (if using the MongoDB tracking system):
+   ```bash
+   brew services start mongodb-community
+   ```
+
+## Usage
+
+### Running the Fully Automatic System
+
+```bash
+python src/main.py
+```
+
+### Running Specific Components
+
+```bash
+# Run the working ALPR system
+python src/camera/working_alpr_system.py
+
+# Run the camera simulator
+python src/camera/camera_simulator.py
+
+# Run the Raspberry Pi tracking demo
+python src/utils/demo_raspberry_pi_tracking.py
+```
 
 ## System Architecture
 
@@ -158,306 +447,24 @@ The vehicle tracking system implements a complete solution for monitoring vehicl
 - **Camera 2**: Rear-facing camera at entry point
 - Cameras operate 24/7, recording video continuously
 
-### Entry Logic
-1. Camera 1 detects vehicle entering and captures front number plate
-2. OCR extracts and records front plate number
-3. Vehicle passes and is captured by Camera 2 (rear-facing)
-4. OCR extracts and records rear plate number
-5. System pairs both plate numbers using time-window and vehicle attributes
-6. Entry event is saved to database
-
-### Exit Logic
-1. Camera 2 detects vehicle exiting and records rear number plate
-2. OCR extracts and records rear plate number
-3. Vehicle passes and Camera 1 captures front plate
-4. OCR extracts and records front plate number
-5. System pairs both plate numbers (reverse matching)
-6. Exit event is logged and matched with entry record
-
-## Key Features
-
-### 1. Dual Plate Recognition
-- Captures both front and rear license plates for accuracy
-- Uses time-window correlation to match entry/exit events
-- Employs vehicle attributes (color, make, model) for matching accuracy
-
-### 2. Employee Vehicle Management
-- Automatic flagging and categorization of employee vehicles
-- Prevents duplicate logging of employee vehicles
-- Maintains employee vehicle database
-
-### 3. Anomaly Detection
-- Identifies mismatched plate numbers
-- Flags missing or low-confidence data
-- Routes anomalies for manual review
-
-### 4. Database Management
-- MongoDB-based storage for performance and scalability
-- Memory-optimized configuration for Raspberry Pi
-- Complete journey tracking from entry to exit
-- Real-time analytics and aggregation
-- Anomaly logging for quality control
-
-## Implementation Files
-
 ### Core Components
-- `vehicle_tracking_system_mongodb.py` - Raspberry Pi optimized tracking system
-- `vehicle_tracking_system.py` - Original SQLite-based system (legacy)
-- `python_docker_wrapper.py` - ALPR SDK Python wrapper
-- `raspberry_pi_setup.py` - Automated Raspberry Pi setup script
-- `vehicle_tracking_config.py` - System configuration
 
-### Demo and Testing
-- `demo_vehicle_tracking.py` - Demonstration script
-- `camera_simulator.py` - Camera simulation for continuous monitoring
-
-## MongoDB Collections
-
-The system uses the following MongoDB collections:
-
-1. **entry_events** - Raw entry event data with indexing
-2. **exit_events** - Raw exit event data with indexing
-3. **vehicle_journeys** - Matched entry/exit pairs
-4. **employee_vehicles** - Employee vehicle database
-5. **system_stats** - Performance monitoring data
-
-### Sample Document Structure
-```javascript
-// Entry Event
-{
-  "_id": ObjectId,
-  "front_plate_number": "ABC123",
-  "rear_plate_number": "ABC123", 
-  "entry_timestamp": ISODate,
-  "front_plate_confidence": 95.5,
-  "rear_plate_confidence": 92.3,
-  "is_processed": false,
-  "created_at": ISODate
-}
-```
-
-## 🚀 Quick Start for Raspberry Pi
-
-### 1. Automated Setup
-```bash
-# Clone and setup
-git clone https://github.com/VedprakashRAD/UltimateALPR-sdk.git
-cd UltimateALPR-sdk
-git checkout ved-dev
-
-# Run automated Raspberry Pi setup
-python3 raspberry_pi_setup.py
-```
-
-### 2. Install Dependencies
-```bash
-# Install optimized dependencies
-pip3 install -r requirements.txt
-```
-
-### 3. Start the System
-```bash
-# Start memory-optimized system
-python3 vehicle_tracking_system_mongodb.py
-```
-
-### Integration Example
-```python
-from vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
-
-# Initialize optimized system
-tracker = MemoryOptimizedVehicleTracker()
-
-# Check system stats
-stats = tracker.get_system_stats()
-print(f"Memory Usage: {stats['memory_usage_gb']:.2f}GB")
-
-# Process entry event with memory optimization
-entry_event = tracker.process_entry_event(
-    front_image_path="camera1_entry.jpg",
-    rear_image_path="camera2_entry.jpg"
-)
-
-# Process in batches to save memory
-journeys = tracker.match_entry_exit_events(batch_size=10)
-```
+1. **ALPR SDK Integration**: Uses the UltimateALPR-SDK via Docker containers for cross-platform compatibility
+2. **Database Management**: MongoDB-based storage for all vehicle events and journeys
+3. **Event Processing**: Logic for handling entry and exit events
+4. **Matching Engine**: Algorithm for pairing entry and exit events
+5. **Anomaly Detection**: System for identifying inconsistencies
 
 ## Configuration
 
-### Raspberry Pi Optimizations
-```python
-# Memory optimization settings
-MEMORY_CONFIG = {
-    "max_memory_usage_gb": 4.0,
-    "garbage_collection_interval": 30,
-    "batch_processing_size": 10,
-    "image_cleanup_enabled": True
-}
+The system can be configured through `src/database/vehicle_tracking_config.py`:
 
-# MongoDB optimization for Pi
-MONGODB_CONFIG = {
-    "cache_size_gb": 1.0,
-    "max_connections": 5,
-    "uri": "mongodb://localhost:27017/"
-}
-```
-
-The system can be configured through `vehicle_tracking_config.py`:
-
-- MongoDB connection settings and optimization
-- Memory usage limits and cleanup intervals
+- Database paths and connection settings
 - ALPR confidence thresholds
 - Camera configurations
-- Batch processing parameters
+- Matching parameters
 - Anomaly detection settings
 
-## Error Handling
+## License
 
-The system includes comprehensive error handling for:
-
-- Low-confidence OCR readings
-- Missing plate data
-- Mismatched plate numbers
-- Database connection issues
-- Docker container availability
-
-## Performance Considerations
-
-- Time-window matching for efficient event correlation
-- Database indexing for fast queries
-- Configurable processing timeouts
-- Concurrent processing capabilities
-
-## Extending the System
-
-The vehicle tracking system can be extended to include:
-
-1. Real-time video stream processing
-2. Web-based dashboard for monitoring
-3. Alerting system for anomalies
-4. Integration with gate control systems
-5. Reporting and analytics features
-6. Cloud-based storage options
-
-## Dependencies
-
-### Core Requirements
-- **Python 3.9+** (optimized for Raspberry Pi)
-- **MongoDB 4.4+** (memory-optimized configuration)
-- **UltimateALPR-SDK** (via Docker ARM64)
-- **Docker 20.10+** (ARM64 support)
-
-### Python Packages
-- **pymongo>=4.0.0** - MongoDB driver
-- **Pillow>=8.0.0** - Image processing
-- **psutil>=5.8.0** - System monitoring
-- **numpy>=1.21.0** - Numerical operations
-
-## 🛠️ Troubleshooting
-
-### Raspberry Pi Specific Issues
-
-**High Memory Usage**
-```bash
-# Check memory usage
-free -h
-# Restart service if needed
-sudo systemctl restart vehicle-tracking
-```
-
-**MongoDB Connection Issues**
-```bash
-# Check MongoDB status
-sudo systemctl status mongodb
-# Restart if needed
-sudo systemctl restart mongodb
-```
-
-**Performance Issues**
-- Reduce image resolution to 480p
-- Increase batch processing size
-- Check camera frame rate settings
-- Monitor system temperature
-
-### Common Issues
-1. **Docker not running**: Ensure Docker daemon is active
-2. **MongoDB connection**: Check service status and configuration
-3. **Low confidence readings**: Adjust camera positioning or lighting
-4. **Memory overflow**: System automatically triggers cleanup
-5. **Mismatched events**: Verify time synchronization between cameras
-
-### Monitoring
-```bash
-# System logs
-journalctl -u vehicle-tracking -f
-
-# Memory monitoring
-watch -n 1 free -h
-
-# MongoDB status
-mongo --eval "db.stats()"
-```
-
-## 📊 Performance Benchmarks
-
-### Raspberry Pi 4 (8GB) Performance
-- **Processing Speed**: 12fps continuous
-- **Memory Usage**: 3.5-4.0GB (out of 8GB)
-- **Database Operations**: 1000+ inserts/minute
-- **Image Processing**: 720p in 80ms average
-- **Uptime**: 24/7 continuous operation
-
-### Comparison: SQLite vs MongoDB
-| Feature | SQLite | MongoDB |
-|---------|--------|---------|
-| Insert Speed | 100/min | 1000+/min |
-| Query Performance | Good | Excellent |
-| Memory Usage | 3.8GB | 3.5GB |
-| Scalability | Limited | High |
-| Analytics | Basic | Advanced |
-
-## 🎯 System Requirements
-
-### Hardware
-- **Raspberry Pi 4/5** with 8GB RAM
-- **MicroSD Card**: 64GB+ (Class 10 or better)
-- **Cameras**: 2x USB/CSI cameras
-- **Network**: Ethernet connection recommended
-
-### Software
-- **OS**: Raspberry Pi OS (64-bit)
-- **Docker**: ARM64 support enabled
-- **MongoDB**: Configured for 1GB cache limit
-
-## 🎬 System Demo
-
-### Run the Interactive Demo
-```bash
-# Experience the full system capabilities
-python3 demo_raspberry_pi_tracking.py
-```
-
-**Demo Features:**
-- 🚗 Simulated vehicle entry/exit events
-- 📊 Real-time memory usage monitoring
-- 🔄 Journey matching demonstration
-- 👨💼 Employee vehicle management
-- 📈 Performance benchmarking
-- 🧹 Automatic cleanup processes
-
-## 🌟 Production Ready
-
-This system is **production-ready** for:
-- 🏢 **Corporate Parking**: Employee and visitor tracking
-- 🏭 **Industrial Sites**: Vehicle access control
-- 🏪 **Retail Centers**: Customer parking analytics
-- 🏥 **Healthcare**: Hospital parking management
-- 🎓 **Educational**: Campus vehicle monitoring
-
-## Branch Information
-
-This Raspberry Pi optimized implementation is available in the `ved-dev` branch of this repository.
-
----
-
-**🎯 Ready to deploy on your Raspberry Pi? Start with the [Quick Start Guide](#quick-start-for-raspberry-pi)!**
+This project uses the UltimateALPR-SDK. Please refer to the original SDK license for terms of use.
