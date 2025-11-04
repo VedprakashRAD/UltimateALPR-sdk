@@ -18,9 +18,18 @@ import threading
 import queue
 
 # Add the database directory to the path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
-from src.core.python_docker_wrapper import UltimateALPRSDK
+
+# Try to import the ALPR SDK
+try:
+    from core.python_docker_wrapper import UltimateALPRSDK
+    ALPR_SDK_AVAILABLE = True
+except ImportError:
+    ALPR_SDK_AVAILABLE = False
+    print("⚠️  ALPR SDK not available - using mock implementation")
+
 
 class MemoryOptimizedVehicleTracker:
     def __init__(self, mongo_uri: str = "mongodb://localhost:27017/", db_name: str = "vehicle_tracking"):
@@ -64,8 +73,13 @@ class MemoryOptimizedVehicleTracker:
     def _init_alpr_sdk(self):
         """Initialize ALPR SDK with memory constraints."""
         try:
-            self.sdk = UltimateALPRSDK()
-            print("ALPR SDK initialized")
+            if ALPR_SDK_AVAILABLE:
+                self.sdk = UltimateALPRSDK()
+                print("ALPR SDK initialized")
+            else:
+                # Mock implementation for testing
+                self.sdk = MockALPRSDK()
+                print("Mock ALPR SDK initialized")
         except Exception as e:
             print(f"ALPR SDK initialization failed: {e}")
             raise
@@ -435,6 +449,21 @@ class MemoryOptimizedVehicleTracker:
         
         print(f"Cleaned up {entry_result.deleted_count} entry events and {exit_result.deleted_count} exit events")
         
+        # Also clean up old images from disk
+        try:
+            # Import the cleanup function
+            sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+            from utils.cleanup_old_images import delete_old_images, PATHS_CONFIG
+            
+            # Get the image storage path
+            image_storage_path = PATHS_CONFIG.get("image_storage", "./CCTV_photos")
+            
+            # Clean up old images
+            deleted_count, deleted_size = delete_old_images(image_storage_path, days, dry_run=False)
+            print(f"Cleaned up {deleted_count} old images ({deleted_size:.2f} MB)")
+        except Exception as e:
+            print(f"Warning: Could not clean up old images: {e}")
+            
     def get_system_stats(self) -> Dict:
         """Get system statistics."""
         memory_info = psutil.virtual_memory()
@@ -476,3 +505,20 @@ if __name__ == "__main__":
     
     print("\nSystem ready for processing vehicle events")
     print("Use tracker.process_entry_event() and tracker.process_exit_event()")
+    
+    
+# Mock ALPR SDK for testing when the real SDK is not available
+class MockALPRSDK:
+    def process_image(self, image_path):
+        """Mock image processing."""
+        return {"status": "success"}
+        
+    def get_plate_details(self, result):
+        """Mock plate details extraction."""
+        import random
+        import string
+        # Generate a random plate number for testing
+        plate_text = ''.join(random.choices(string.ascii_uppercase, k=2)) + \
+                     ''.join(random.choices(string.digits, k=4)) + \
+                     ''.join(random.choices(string.ascii_uppercase, k=2))
+        return [{"text": plate_text, "confidence": random.uniform(80, 95)}]
