@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Auto Detect System - Detects vehicles and automatically processes license plates
+Auto Vehicle Detection System - Detects vehicles automatically and processes license plates
 """
 
 import cv2
@@ -10,14 +10,17 @@ import sys
 import time
 from datetime import datetime
 
-# Import existing implementations
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'tracking'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+
+# Import modules
 from tracking.vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
-# Import configuration
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
-import vehicle_tracking_config
+import database.vehicle_tracking_config as vehicle_tracking_config
+from utils.env_loader import AUTO_DELETE_IMAGES, KEEP_PROCESSED_IMAGES
 
 class AutoDetectVehicleTracker:
     def __init__(self):
@@ -63,36 +66,56 @@ class AutoDetectVehicleTracker:
             
     def detect_motion(self, frame):
         """Detect motion in frame."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
-        
-        # Initialize background
-        if self.background is None:
-            self.background = gray
+        try:
+            # Convert to grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (21, 21), 0)
+            
+            # Initialize background
+            if self.background is None:
+                self.background = gray.copy().astype("float")
+                return False
+                
+            # Update background
+            cv2.accumulateWeighted(gray, self.background, 0.5)
+            background = cv2.convertScaleAbs(self.background)
+            
+            # Compute difference
+            diff = cv2.absdiff(background, gray)
+            _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+            
+            # Dilate to fill gaps
+            thresh = cv2.dilate(thresh, None, iterations=2)
+            
+            # Find contours
+            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Check for significant motion
+            for contour in contours:
+                if cv2.contourArea(contour) > 500:  # Minimum area threshold
+                    return True
+                    
             return False
             
-        # Compute difference
-        frame_delta = cv2.absdiff(self.background, gray)
-        thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-        thresh = cv2.dilate(thresh, None, iterations=2)
-        
-        # Find contours
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Check for significant motion
-        for contour in contours:
-            if cv2.contourArea(contour) > 5000:  # Minimum area for vehicle
-                return True
-                
-        # Update background
-        self.background = cv2.addWeighted(self.background, 0.95, gray, 0.05, 0)
-        return False
-        
+        except Exception as e:
+            print(f"Motion detection error: {e}")
+            return False
+            
+    def delete_image_if_configured(self, image_path):
+        """Delete image if auto-delete is configured."""
+        if AUTO_DELETE_IMAGES and not KEEP_PROCESSED_IMAGES:
+            try:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"🗑️  Deleted image: {os.path.basename(image_path)}")
+            except Exception as e:
+                print(f"❌ Error deleting image {image_path}: {e}")
+            
     def process_vehicle_detection(self, frame):
         """Process detected vehicle."""
         current_time = time.time()
         
-        # Check cooldown
+        # Cooldown to prevent rapid detections
         if current_time - self.last_detection < self.detection_cooldown:
             return
             
@@ -110,6 +133,11 @@ class AutoDetectVehicleTracker:
         cv2.imwrite(f"captured_images/{image_filename}", frame)
         
         print(f"📸 Image saved: {image_path}")
+        
+        # Delete images after processing if configured
+        self.delete_image_if_configured(image_path)
+        # Note: We keep the backward compatibility image for now
+        # In production, you might want to delete it too or remove the duplication entirely
         
         # Create entry event
         if self.tracker:
@@ -144,6 +172,8 @@ class AutoDetectVehicleTracker:
             
         print("\n🚀 AUTO-DETECTION STARTED")
         print("Show your car to the camera - it will auto-detect!")
+        if AUTO_DELETE_IMAGES:
+            print("🗑️  Auto-delete images enabled")
         print("Press 'q' to quit")
         
         self.running = True

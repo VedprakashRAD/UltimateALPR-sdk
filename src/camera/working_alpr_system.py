@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Working ALPR System with Real License Plate Detection
-Uses OpenCV + Tesseract for actual plate reading
+Working ALPR System - Real-time license plate recognition with MongoDB integration
 """
 
 import cv2
@@ -9,27 +8,29 @@ import numpy as np
 import os
 import sys
 import time
-from datetime import datetime
-import psutil
 import re
+from datetime import datetime
 
-# Try to import pytesseract for OCR
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'tracking'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+
+# Try to import Tesseract OCR
 try:
     import pytesseract
     TESSERACT_AVAILABLE = True
-    print("✅ Tesseract OCR available")
 except ImportError:
     TESSERACT_AVAILABLE = False
     print("⚠️  Tesseract not available - install with: pip install pytesseract")
 
-# Import existing implementations
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'tracking'))
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+# Import modules
 from tracking.vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
-# Import configuration
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
-import vehicle_tracking_config
+import database.vehicle_tracking_config as vehicle_tracking_config
+from utils.env_loader import AUTO_DELETE_IMAGES, KEEP_PROCESSED_IMAGES
+
 
 class WorkingALPRSystem:
     def __init__(self):
@@ -192,6 +193,16 @@ class WorkingALPRSystem:
             print(f"OCR error: {e}")
             return "ERROR", 0.0
             
+    def delete_image_if_configured(self, image_path):
+        """Delete image if auto-delete is configured."""
+        if AUTO_DELETE_IMAGES and not KEEP_PROCESSED_IMAGES:
+            try:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"🗑️  Deleted image: {os.path.basename(image_path)}")
+            except Exception as e:
+                print(f"❌ Error deleting image {image_path}: {e}")
+                
     def process_frame(self, frame):
         """Process frame for license plates."""
         results = []
@@ -222,22 +233,25 @@ class WorkingALPRSystem:
                 detected_plate_path = f"detected_plates/{plate_filename}"
                 cv2.imwrite(detected_plate_path, plate_img)
                 
-                result = {
+                # Delete images after processing if configured
+                self.delete_image_if_configured(plate_path)
+                self.delete_image_if_configured(detected_plate_path)
+                
+                results.append({
                     'text': plate_text,
                     'confidence': confidence,
                     'bbox': bbox,
                     'method': method,
                     'image_path': plate_path
-                }
-                results.append(result)
+                })
                 
-                # Draw on frame
+                # Draw rectangle around plate
                 x, y, w, h = bbox
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cv2.putText(frame, f"{plate_text} ({confidence:.0f}%)", 
-                           (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
-        return results, frame
+                           (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                           
+        return results
         
     def save_vehicle_event(self, plate_results, event_type="entry"):
         """Save vehicle event to database."""
