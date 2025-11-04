@@ -28,11 +28,27 @@ import numpy as np
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 
-# Global variables for camera feeds
+# Import our vehicle tracking system
+try:
+    from src.camera.working_alpr_system import WorkingALPRSystem
+    ALPR_SYSTEM_AVAILABLE = True
+except ImportError:
+    ALPR_SYSTEM_AVAILABLE = False
+    print("⚠️  ALPR system not available")
+
+try:
+    from src.tracking.vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
+    TRACKING_SYSTEM_AVAILABLE = True
+except ImportError:
+    TRACKING_SYSTEM_AVAILABLE = False
+    print("⚠️  Vehicle tracking system not available")
+
+# Global variables for camera feeds and tracking
 camera1_feed = None
 camera2_feed = None
 camera1_lock = threading.Lock()
 camera2_lock = threading.Lock()
+vehicle_tracker = None
 
 # Flask app
 app = Flask(__name__, template_folder='src/ui/templates', static_folder='src/ui/static')
@@ -41,30 +57,55 @@ app = Flask(__name__, template_folder='src/ui/templates', static_folder='src/ui/
 MONGO_URI = "mongodb://localhost:27017/"
 DB_NAME = "vehicle_tracking"
 
-def connect_to_mongodb():
-    """Connect to MongoDB database."""
+# Global database client
+db_client = None
+db_instance = None
+
+# Global ALPR system instances and tracking variables
+alpr_system_camera1 = None
+alpr_system_camera2 = None
+last_detection_time = {}  # Track last detection time per camera
+
+def initialize_database():
+    """Initialize persistent database connection."""
+    global db_client, db_instance
     try:
-        client = MongoClient(
+        db_client = MongoClient(
             MONGO_URI,
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=10000,
             socketTimeoutMS=20000
         )
-        db = client[DB_NAME]
+        db_instance = db_client[DB_NAME]
         # Test connection
-        client.admin.command('ping')
+        db_client.admin.command('ping')
         print(f"✅ Connected to MongoDB at {MONGO_URI}/{DB_NAME}")
-        return client, db
+        return True
     except ConnectionFailure as e:
         print(f"❌ MongoDB connection failed: {e}")
-        return None, None
+        return False
+
+def get_db():
+    """Get database instance."""
+    global db_instance
+    return db_instance
 
 def get_system_stats(db):
     """Get system statistics from database."""
     try:
+        # Import psutil only when needed
+        try:
+            import psutil
+            memory_info = psutil.virtual_memory()
+            memory_usage_gb = memory_info.used / (1024**3)
+            memory_percent = memory_info.percent
+        except ImportError:
+            memory_usage_gb = 0
+            memory_percent = 0
+            
         stats = {
-            "memory_usage_gb": 0,
-            "memory_percent": 0,
+            "memory_usage_gb": round(memory_usage_gb, 2),
+            "memory_percent": round(memory_percent, 1),
             "total_entry_events": db.entry_events.count_documents({}),
             "total_exit_events": db.exit_events.count_documents({}),
             "total_journeys": db.vehicle_journeys.count_documents({}),
@@ -85,26 +126,78 @@ def get_recent_journeys(db, hours=24):
         
         journeys = list(db.vehicle_journeys.find({
             "entry_timestamp": {"$gte": since}
-        }).sort("entry_timestamp", -1).limit(100))
+        }).sort("entry_timestamp", -1).limit(10))
         
         return journeys
     except Exception as e:
         print(f"Error getting journeys: {e}")
         return []
 
-# Camera feed functions
+def initialize_alpr_systems():
+    """Initialize ALPR systems for both cameras."""
+    global alpr_system_camera1, alpr_system_camera2, last_detection_time
+    
+    if not ALPR_SYSTEM_AVAILABLE:
+        print("⚠️  ALPR system not available")
+        return False
+    
+    try:
+        # Initialize ALPR systems for both cameras
+        alpr_system_camera1 = WorkingALPRSystem()
+        alpr_system_camera2 = WorkingALPRSystem()
+        
+        # Initialize last detection times
+        last_detection_time[0] = 0
+        last_detection_time[1] = 0
+        
+        print("✅ ALPR systems initialized")
+        return True
+    except Exception as e:
+        print(f"❌ ALPR system initialization failed: {e}")
+        return False
+
+def process_frame_with_alpr(frame, camera_id):
+    """Process a frame with ALPR and return annotated frame."""
+    global alpr_system_camera1, alpr_system_camera2, last_detection_time
+    
+    # Select the appropriate ALPR system
+    alpr_system = alpr_system_camera1 if camera_id == 0 else alpr_system_camera2
+    
+    if not alpr_system or not ALPR_SYSTEM_AVAILABLE:
+        return frame
+    
+    try:
+        # Process frame for license plates (this returns only results)
+        plate_results = alpr_system.process_frame(frame)
+        
+        # Save to database if we have results and cooldown period has passed
+        if plate_results:
+            current_time = time.time()
+            if current_time - last_detection_time.get(camera_id, 0) > 5:
+                last_detection_time[camera_id] = current_time
+                # Save vehicle event to database
+                event_type = "entry" if camera_id == 0 else "exit"
+                alpr_system.save_vehicle_event(plate_results, event_type)
+        
+        # The frame is already annotated by process_frame, so return it as is
+        return frame
+    except Exception as e:
+        print(f"ALPR processing error for camera {camera_id}: {e}")
+        return frame
+
 def generate_camera_feed(camera_id):
-    """Generate camera feed for streaming."""
-    global camera1_feed, camera2_feed
+    """Generate camera feed for streaming with ALPR processing."""
+    global alpr_system_camera1, alpr_system_camera2
     
     # Try to open camera
     cap = cv2.VideoCapture(camera_id)
     if not cap.isOpened():
         # If camera not available, create a test pattern
+        frame_count = 0
         while True:
             # Create a test image with text
             img = np.zeros((480, 640, 3), dtype=np.uint8)
-            text = f"CAMERA {camera_id+1} - OFFLINE"
+            text = f"CAMERA {camera_id+1} - NO CAMERA"
             cv2.putText(img, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 50), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
@@ -116,19 +209,27 @@ def generate_camera_feed(camera_id):
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             
-            time.sleep(0.1)
+            time.sleep(0.033)  # ~30 FPS
         return
     
-    # Camera is available
+    # Camera is available - process with ALPR
+    frame_count = 0
+    
     while True:
         ret, frame = cap.read()
         if not ret:
             break
             
-        # Add timestamp
+        frame_count += 1
+        
+        # Process every 5th frame to reduce CPU usage
+        if frame_count % 5 == 0:
+            frame = process_frame_with_alpr(frame.copy(), camera_id)
+        
+        # Add timestamp and camera info
         cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(frame, f"CAMERA {camera_id+1}", (10, 60), 
+        cv2.putText(frame, f"CAMERA {camera_id+1} - ALPR ACTIVE", (10, 60), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         # Encode frame
@@ -150,7 +251,7 @@ def index():
 def api_stats():
     """API endpoint for system statistics."""
     try:
-        client, db = connect_to_mongodb()
+        db = get_db()
         if db is None:
             return jsonify({'success': False, 'error': 'Database connection failed'})
         
@@ -159,25 +260,27 @@ def api_stats():
         
         # Format journeys for JSON
         formatted_journeys = []
-        for journey in recent_journeys[:10]:  # First 10
+        for journey in recent_journeys:  # First 10
+            # Format timestamps properly
+            entry_time = journey.get('entry_timestamp')
+            exit_time = journey.get('exit_timestamp')
+            
             formatted_journeys.append({
                 'plate': journey.get('front_plate_number', 'Unknown'),
-                'entry_time': journey.get('entry_timestamp', datetime.min).isoformat(),
-                'exit_time': journey.get('exit_timestamp', datetime.min).isoformat(),
+                'entry_time': entry_time.isoformat() if entry_time else datetime.min.isoformat(),
+                'exit_time': exit_time.isoformat() if exit_time else datetime.min.isoformat(),
                 'duration_seconds': journey.get('duration_seconds', 0),
                 'is_employee': journey.get('is_employee', False)
             })
         
         # Get employee vehicles
-        employee_vehicles = list(db.employee_vehicles.find({"is_active": True}))
+        employee_vehicles = list(db.employee_vehicles.find({"is_active": True}).limit(5))
         formatted_employees = []
         for vehicle in employee_vehicles:
             formatted_employees.append({
                 'plate': vehicle.get('plate_number', 'Unknown'),
                 'employee_name': vehicle.get('employee_name', 'Unknown')
             })
-        
-        client.close()
         
         return jsonify({
             'success': True,
@@ -192,7 +295,7 @@ def api_stats():
 def api_database():
     """API endpoint for database information."""
     try:
-        client, db = connect_to_mongodb()
+        db = get_db()
         if db is None:
             return jsonify({'success': False, 'error': 'Database connection failed'})
         
@@ -205,8 +308,6 @@ def api_database():
         
         db_stats = db.command("dbStats")
         
-        client.close()
-        
         return jsonify({
             'success': True,
             'collections': collection_info,
@@ -215,6 +316,111 @@ def api_database():
                 'storage_size_mb': round(db_stats.get('storageSize', 0) / (1024*1024), 2),
                 'collections': db_stats.get('collections', 0)
             }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/simulate_vehicle')
+def simulate_vehicle():
+    """API endpoint to simulate a vehicle entry/exit event."""
+    try:
+        db = get_db()
+        if db is None:
+            return jsonify({'success': False, 'error': 'Database connection failed'})
+        
+        # Generate a random license plate
+        import random
+        import string
+        plate_chars = ''.join(random.choices(string.ascii_uppercase, k=2))
+        plate_numbers = ''.join(random.choices(string.digits, k=4))
+        plate_end = ''.join(random.choices(string.ascii_uppercase, k=2))
+        plate_number = f"{plate_chars}{plate_numbers}{plate_end}"
+        
+        # Randomly decide if it's an employee vehicle (20% chance)
+        is_employee = random.random() < 0.2
+        
+        # Create entry event
+        entry_event = {
+            "front_plate_number": plate_number,
+            "rear_plate_number": plate_number,
+            "front_plate_confidence": random.uniform(80, 95),
+            "rear_plate_confidence": random.uniform(80, 95),
+            "front_plate_image_path": f"./CCTV_photos/entry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
+            "rear_plate_image_path": f"./CCTV_photos/entry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
+            "entry_timestamp": datetime.utcnow(),
+            "vehicle_color": random.choice(["Red", "Blue", "Green", "Black", "White", "Silver"]),
+            "vehicle_make": random.choice(["Toyota", "Honda", "Ford", "BMW", "Audi", "Mercedes"]),
+            "vehicle_model": random.choice(["Camry", "Civic", "Focus", "X3", "A4", "C-Class"]),
+            "is_processed": False,
+            "created_at": datetime.utcnow()
+        }
+        
+        result = db.entry_events.insert_one(entry_event)
+        entry_id = result.inserted_id
+        
+        # If it's an employee vehicle, register it
+        if is_employee:
+            employee_name = f"Employee {random.randint(1, 100)}"
+            try:
+                db.employee_vehicles.insert_one({
+                    "plate_number": plate_number,
+                    "employee_name": employee_name,
+                    "is_active": True,
+                    "created_at": datetime.utcnow()
+                })
+            except Exception:
+                # Plate might already exist, ignore
+                pass
+        
+        # With 70% probability, also create an exit event and journey
+        if random.random() < 0.7:
+            # Wait a random time (1-30 minutes)
+            duration_seconds = random.randint(60, 1800)
+            exit_timestamp = datetime.utcnow()
+            
+            # Create exit event
+            exit_event = {
+                "front_plate_number": plate_number,
+                "rear_plate_number": plate_number,
+                "front_plate_confidence": random.uniform(80, 95),
+                "rear_plate_confidence": random.uniform(80, 95),
+                "front_plate_image_path": f"./CCTV_photos/exit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
+                "rear_plate_image_path": f"./CCTV_photos/exit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
+                "exit_timestamp": exit_timestamp,
+                "vehicle_color": entry_event["vehicle_color"],
+                "vehicle_make": entry_event["vehicle_make"],
+                "vehicle_model": entry_event["vehicle_model"],
+                "is_processed": False,
+                "created_at": exit_timestamp
+            }
+            
+            exit_result = db.exit_events.insert_one(exit_event)
+            exit_id = exit_result.inserted_id
+            
+            # Create journey
+            journey = {
+                "entry_event_id": entry_id,
+                "exit_event_id": exit_id,
+                "front_plate_number": plate_number,
+                "rear_plate_number": plate_number,
+                "entry_timestamp": entry_event["entry_timestamp"],
+                "exit_timestamp": exit_timestamp,
+                "duration_seconds": duration_seconds,
+                "vehicle_color": entry_event["vehicle_color"],
+                "vehicle_make": entry_event["vehicle_make"],
+                "vehicle_model": entry_event["vehicle_model"],
+                "is_employee": is_employee,
+                "flagged_for_review": False,
+                "created_at": datetime.utcnow()
+            }
+            
+            db.vehicle_journeys.insert_one(journey)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Vehicle {plate_number} processed',
+            'plate': plate_number,
+            'is_employee': is_employee
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -295,6 +501,12 @@ def create_main_dashboard_template():
             right: 30px;
             z-index: 1000;
         }
+        .simulate-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 100px;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -338,7 +550,7 @@ def create_main_dashboard_template():
                         </h5>
                     </div>
                     <div class="card-body p-0">
-                        <img src="/camera1_feed" class="img-fluid" alt="Camera 1 Feed">
+                        <img src="/camera1_feed" class="img-fluid" alt="Camera 1 Feed" id="camera1-feed">
                     </div>
                 </div>
             </div>
@@ -350,7 +562,7 @@ def create_main_dashboard_template():
                         </h5>
                     </div>
                     <div class="card-body p-0">
-                        <img src="/camera2_feed" class="img-fluid" alt="Camera 2 Feed">
+                        <img src="/camera2_feed" class="img-fluid" alt="Camera 2 Feed" id="camera2-feed">
                     </div>
                 </div>
             </div>
@@ -447,6 +659,11 @@ def create_main_dashboard_template():
         </div>
     </div>
 
+    <!-- Simulate Vehicle Button -->
+    <button class="btn btn-success btn-lg rounded-circle simulate-btn" id="simulate-btn" title="Simulate Vehicle">
+        <i class="bi bi-car-front"></i>
+    </button>
+
     <!-- Refresh Button -->
     <button class="btn btn-primary btn-lg rounded-circle refresh-btn" id="refresh-btn" title="Refresh Data">
         <i class="bi bi-arrow-repeat"></i>
@@ -505,7 +722,7 @@ def create_main_dashboard_template():
                     // Update journeys
                     let journeysHtml = '';
                     if (statsData.recent_journeys.length > 0) {
-                        statsData.recent_journeys.slice(0, 10).forEach(journey => {
+                        statsData.recent_journeys.forEach(journey => {
                             const entryTime = new Date(journey.entry_time);
                             const exitTime = new Date(journey.exit_time);
                             const durationMinutes = Math.floor(journey.duration_seconds / 60);
@@ -588,6 +805,45 @@ def create_main_dashboard_template():
             }
         }
 
+        // Simulate vehicle
+        async function simulateVehicle() {
+            try {
+                const response = await fetch('/api/simulate_vehicle');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Show success message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
+                    alertDiv.style.bottom = '20px';
+                    alertDiv.style.right = '20px';
+                    alertDiv.style.zIndex = '9999';
+                    alertDiv.innerHTML = `
+                        <i class="bi bi-check-circle me-2"></i>
+                        <strong>Success!</strong> Vehicle ${data.plate} processed
+                        ${data.is_employee ? '<span class="badge bg-success ms-2">Employee</span>' : ''}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.body.appendChild(alertDiv);
+                    
+                    // Auto remove after 3 seconds
+                    setTimeout(() => {
+                        if (alertDiv.parentNode) {
+                            alertDiv.parentNode.removeChild(alertDiv);
+                        }
+                    }, 3000);
+                    
+                    // Refresh data
+                    fetchData();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error simulating vehicle:', error);
+                alert('Error simulating vehicle');
+            }
+        }
+
         // Initial data load
         document.addEventListener('DOMContentLoaded', function() {
             fetchData();
@@ -613,16 +869,18 @@ def create_main_dashboard_template():
             });
         });
 
-        // Auto-refresh every 30 seconds
-        setInterval(fetchData, 30000);
+        // Simulate vehicle button
+        document.getElementById('simulate-btn').addEventListener('click', simulateVehicle);
+
+        // Auto-refresh every 5 seconds
+        setInterval(fetchData, 5000);
         
-        // Refresh camera feeds every 5 seconds
+        // Refresh camera feeds every 30 seconds to prevent caching
         setInterval(function() {
-            document.querySelectorAll('img[src*="_feed"]').forEach(img => {
-                const src = img.src;
-                img.src = src.split('?')[0] + '?' + new Date().getTime();
-            });
-        }, 5000);
+            const timestamp = new Date().getTime();
+            document.getElementById('camera1-feed').src = '/camera1_feed?' + timestamp;
+            document.getElementById('camera2-feed').src = '/camera2_feed?' + timestamp;
+        }, 30000);
     </script>
     
     <style>
@@ -656,24 +914,31 @@ def main():
     # Create necessary directories
     os.makedirs('src/ui/templates', exist_ok=True)
     os.makedirs('src/ui/static', exist_ok=True)
+    os.makedirs('CCTV_photos', exist_ok=True)
     
     # Create the main dashboard template
     create_main_dashboard_template()
     
-    # Test database connection
-    client, db = connect_to_mongodb()
-    if db is not None:
-        print("✅ Database connection successful")
-        client.close()
-    else:
+    # Initialize database connection
+    if not initialize_database():
         print("❌ Database connection failed")
         return 1
+    
+    # Initialize ALPR systems
+    if ALPR_SYSTEM_AVAILABLE:
+        initialize_alpr_systems()
     
     print()
     print("📱 Web Dashboard:")
     print("   Access at: http://localhost:8080")
     print("   Camera 1 Feed: http://localhost:8080/camera1_feed")
     print("   Camera 2 Feed: http://localhost:8080/camera2_feed")
+    print()
+    print("✨ New Features:")
+    print("   - Click the car icon to simulate vehicle events")
+    print("   - Data refreshes automatically every 5 seconds")
+    print("   - Camera feeds update every 30 seconds")
+    print("   - Real-time ALPR processing")
     print()
     print("🔌 Press Ctrl+C to stop all services")
     print()
@@ -683,6 +948,10 @@ def main():
         app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
     except KeyboardInterrupt:
         print("\n🛑 Stopping all services...")
+        # Close database connection
+        global db_client
+        if db_client:
+            db_client.close()
         return 0
     except Exception as e:
         print(f"❌ Error running web server: {e}")
