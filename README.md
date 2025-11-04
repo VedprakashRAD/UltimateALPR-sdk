@@ -618,33 +618,160 @@ mongo --eval "db.stats()"
 - **Docker**: ARM64 support enabled
 - **MongoDB**: Configured for 1GB cache limit
 
-## 🚀 Unified Vehicle Tracking System
+## 🚀 Our Vehicle Tracking System Implementation
 
-This repository also includes a unified application that runs the entire vehicle tracking system with web dashboard and camera feeds from a single Python file.
+We have developed a comprehensive vehicle tracking system that leverages the UltimateALPR-SDK for automatic license plate recognition with the following key features:
 
-### Features
+### System Architecture
 
-1. **Web Dashboard**: Real-time statistics and monitoring at http://localhost:8080
-2. **Camera Feeds**: Live streams from two cameras (entry and exit)
-3. **Database Integration**: MongoDB backend for storing vehicle data
-4. **Automatic Image Management**: Configurable image retention and cleanup
+Our implementation consists of several core components working together:
 
-### Running the Unified System
+1. **Camera Processing Systems**
+   - Fully Automatic Vehicle Tracking System
+   - Auto-Detection System with motion sensing
+   - Working ALPR System with manual controls
 
+2. **Database Management**
+   - MongoDB integration for high-performance data storage
+   - Separate collections for entry events, exit events, and vehicle journeys
+   - Employee vehicle registration and management
+
+3. **Image Storage & Management**
+   - Centralized CCTV_photos directory for all captured images
+   - Automatic image cleanup to manage storage space
+   - Configurable retention policies
+
+4. **Web Dashboard**
+   - Real-time monitoring interface
+   - Live camera feeds display
+   - Statistical analytics and reporting
+
+### Key Features
+
+#### Dual Camera Support
+- **Camera 1 (Entry)**: Captures front and rear plates of entering vehicles
+- **Camera 2 (Exit)**: Captures front and rear plates of exiting vehicles
+- Synchronized processing for accurate journey tracking
+
+#### Real-time Processing
+- Automatic vehicle detection using computer vision
+- License plate extraction with OCR technology
+- Instant database storage of vehicle events
+
+#### Database Structure
+Our MongoDB implementation includes four main collections:
+
+1. **entry_events**: Records of vehicles entering the monitored area
+2. **exit_events**: Records of vehicles exiting the monitored area
+3. **vehicle_journeys**: Matched entry/exit events with duration calculations
+4. **employee_vehicles**: Registered employee vehicles with special handling
+
+#### Storage Management
+- Centralized image storage in CCTV_photos directory
+- Automatic deletion of processed images to save space
+- Configurable retention periods through environment variables
+
+#### Web Interface
+- Dashboard at http://localhost:8080
+- Live camera feeds display
+- Real-time statistics and monitoring
+- Recent activity tracking
+
+### Implementation Details
+
+#### Modular Code Structure
+Our codebase follows a clean, modular architecture:
+
+```
+src/
+├── camera/              # Camera processing systems
+│   ├── auto_detect_system.py
+│   ├── fully_automatic_system.py
+│   └── working_alpr_system.py
+├── core/                # Core SDK wrapper
+│   └── python_docker_wrapper.py
+├── database/            # Database configuration
+│   └── vehicle_tracking_config.py
+├── tracking/            # Database integration
+│   └── vehicle_tracking_system_mongodb.py
+├── ui/                  # Web interface
+│   ├── templates/
+│   └── web_dashboard.py
+└── utils/               # Utility scripts
+    ├── cleanup_old_images.py
+    ├── delete_entries.py
+    └── env_loader.py
+```
+
+#### Environment Configuration
+The system is configured through a `.env` file with the following key settings:
+
+```env
+# Database Configuration
+MONGO_URI=mongodb://localhost:27017/
+DB_NAME=vehicle_tracking
+
+# Storage Configuration
+IMAGE_STORAGE_PATH=./CCTV_photos
+AUTO_DELETE_IMAGES=true
+KEEP_PROCESSED_IMAGES=false
+
+# Processing Configuration
+CONFIDENCE_THRESHOLD=80.0
+DETECTION_COOLDOWN=5
+```
+
+#### Automatic Image Cleanup
+To prevent storage overflow, our system includes an automatic cleanup mechanism:
+
+- Images are deleted after processing when `AUTO_DELETE_IMAGES=true`
+- Configurable retention periods for unprocessed images
+- Storage monitoring and reporting
+
+### Running the System
+
+#### Prerequisites
+1. MongoDB server running
+2. Python 3.9+ with virtual environment
+3. Camera devices connected
+
+#### Setup
 ```bash
+# Create virtual environment
+./setup_venv.sh
+
 # Activate virtual environment
 source venv/bin/activate
 
-# Run the unified application
-python main.py
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Accessing the Dashboard
+#### Execution
+```bash
+# Run the unified system
+python main.py
 
-Once the system is running, access the web dashboard at:
-- **Main Dashboard**: http://localhost:8080
-- **Camera 1 Feed**: http://localhost:8080/camera1_feed
-- **Camera 2 Feed**: http://localhost:8080/camera2_feed
+# Access dashboard at http://localhost:8080
+```
+
+### API Endpoints
+
+Our web interface provides several REST API endpoints:
+
+- `/api/stats` - System statistics and recent activity
+- `/api/database` - Database information and collection details
+- `/camera1_feed` - Live stream from entry camera
+- `/camera2_feed` - Live stream from exit camera
+
+### Configuration Options
+
+The system can be customized through environment variables:
+
+- **AUTO_DELETE_IMAGES**: Enable/disable automatic image deletion
+- **KEEP_PROCESSED_IMAGES**: Retain processed images
+- **DETECTION_COOLDOWN**: Minimum time between vehicle detections
+- **CONFIDENCE_THRESHOLD**: Minimum OCR confidence for plate recognition
 
 ## Branch Information
 
