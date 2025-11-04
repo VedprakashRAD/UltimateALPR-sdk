@@ -17,8 +17,10 @@ from pymongo.errors import ConnectionFailure
 import threading
 import queue
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from python_docker_wrapper import UltimateALPRSDK
+# Add the database directory to the path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+from src.core.python_docker_wrapper import UltimateALPRSDK
 
 class MemoryOptimizedVehicleTracker:
     def __init__(self, mongo_uri: str = "mongodb://localhost:27017/", db_name: str = "vehicle_tracking"):

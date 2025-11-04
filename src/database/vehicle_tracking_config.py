@@ -82,7 +82,10 @@ PERFORMANCE_CONFIG = {
 
 # Paths configuration
 PATHS_CONFIG = {
-    "image_storage": "./captured_images",
+    "image_storage": "./CCTV_photos",           # Main CCTV photos directory
+    "captured_images": "./captured_images",     # Manual captures
+    "auto_captures": "./auto_captures",         # Automatic captures
+    "detected_plates": "./detected_plates",     # Detected license plates
     "processed_images": "./processed_images",
     "log_directory": "./logs",
     "backup_directory": "./backups"
@@ -90,5 +93,5 @@ PATHS_CONFIG = {
 
 # Create directories if they don't exist
 for path_key, path_value in PATHS_CONFIG.items():
-    if path_key.endswith("_directory") or path_key.endswith("_images"):
+    if path_key.endswith("_directory") or path_key.endswith("_images") or path_key.endswith("_plates"):
         os.makedirs(path_value, exist_ok=True)

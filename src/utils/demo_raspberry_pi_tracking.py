@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-Raspberry Pi Vehicle Tracking System Demo
-Demonstrates the memory-optimized MongoDB-based vehicle tracking system.
+Demo Raspberry Pi Tracking System
 """
 
 import os
 import sys
 import time
 from datetime import datetime
-import psutil
 
-# Add current directory to path
+# Import existing implementations
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database'))
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
 
 def print_system_info():

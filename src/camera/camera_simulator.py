@@ -15,6 +15,10 @@ from typing import List, Dict
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
+
+# Import configuration
+import vehicle_tracking_config
 
 from vehicle_tracking_system import VehicleTrackingSystem
 
@@ -32,6 +36,10 @@ class CameraSimulator:
         self.exit_queue: List[Dict] = []
         self.vehicle_counter = 0
         
+        # Use the configured image storage path
+        self.image_storage_path = vehicle_tracking_config.PATHS_CONFIG["image_storage"]
+        os.makedirs(self.image_storage_path, exist_ok=True)
+        
     def simulate_entry_event(self):
         """Simulate a vehicle entry event."""
         self.vehicle_counter += 1
@@ -46,8 +54,20 @@ class CameraSimulator:
         # Add some randomness to simulate different vehicles
         vehicle_id = f"SIM{self.vehicle_counter:04d}"
         
+        # Save a copy of the sample image to the CCTV_photos directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sim_image_path = f"{self.image_storage_path}/sim_entry_{vehicle_id}_{timestamp}.jpg"
+        
+        # Copy the sample image to the CCTV_photos directory
+        try:
+            import shutil
+            shutil.copy2(sample_image, sim_image_path)
+        except Exception as e:
+            print(f"Warning: Could not copy image to CCTV_photos: {e}")
+            sim_image_path = sample_image
+            
         # Process entry event
-        entry_event = self.tracker.process_entry_event(sample_image, sample_image)
+        entry_event = self.tracker.process_entry_event(sim_image_path, sim_image_path)
         entry_event["vehicle_id"] = vehicle_id
         
         print(f"[{datetime.now().strftime('%H:%M:%S')}] ENTRY: Vehicle {vehicle_id} detected")
@@ -71,8 +91,21 @@ class CameraSimulator:
         # For simulation, we'll use the sample image
         sample_image = "assets/images/lic_us_1280x720.jpg"
         
+        # Save a copy of the sample image to the CCTV_photos directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        vehicle_id = entry_event["vehicle_id"]
+        sim_image_path = f"{self.image_storage_path}/sim_exit_{vehicle_id}_{timestamp}.jpg"
+        
+        # Copy the sample image to the CCTV_photos directory
+        try:
+            import shutil
+            shutil.copy2(sample_image, sim_image_path)
+        except Exception as e:
+            print(f"Warning: Could not copy image to CCTV_photos: {e}")
+            sim_image_path = sample_image
+        
         # Process exit event
-        exit_event = self.tracker.process_exit_event(sample_image, sample_image)
+        exit_event = self.tracker.process_exit_event(sim_image_path, sim_image_path)
         exit_event["vehicle_id"] = entry_event["vehicle_id"]
         
         print(f"[{datetime.now().strftime('%H:%M:%S')}] EXIT: Vehicle {entry_event['vehicle_id']} detected")
