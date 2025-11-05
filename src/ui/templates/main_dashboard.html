@@ -24,47 +24,9 @@
             font-size: 0.9rem;
             color: #6c757d;
         }
-        .journey-item {
-            border-left: 4px solid #0d6efd;
-            padding-left: 15px;
-            margin-bottom: 15px;
-        }
-        .employee-item {
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
         .navbar-brand {
             font-weight: bold;
             color: #fff !important;
-        }
-        .camera-feed {
-            width: 100%;
-            height: 300px;
-            background-color: #000;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        .camera-placeholder {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: #fff;
-            font-size: 1.2rem;
-        }
-        .refresh-btn {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 1000;
-        }
-        .simulate-btn {
-            position: fixed;
-            bottom: 30px;
-            right: 100px;
-            z-index: 1000;
         }
     </style>
 </head>
@@ -88,11 +50,6 @@
     <div class="container-fluid mt-4">
         <div class="row">
             <div class="col-12">
-                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>System Online!</strong> Access this dashboard at <a href="http://localhost:8080" class="alert-link">http://localhost:8080</a>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
                 <h2 class="mb-4">
                     <i class="bi bi-speedometer2 me-2"></i>Main Dashboard
                 </h2>
@@ -105,9 +62,8 @@
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
-                            <i class="bi bi-camera me-2"></i>Camera 1 - Front Plate (Entry Point)
+                            <i class="bi bi-camera me-2"></i>Camera 1 Feed (Entry)
                         </h5>
-                        <small class="text-muted">Captures front number plate as vehicle enters</small>
                     </div>
                     <div class="card-body p-0">
                         <img src="/camera1_feed" class="img-fluid" alt="Camera 1 Feed" id="camera1-feed">
@@ -118,9 +74,8 @@
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
-                            <i class="bi bi-camera me-2"></i>Camera 2 - Rear Plate (Entry/Exit Point)
+                            <i class="bi bi-camera me-2"></i>Camera 2 Feed (Exit)
                         </h5>
-                        <small class="text-muted">Captures rear plate during entry and exit</small>
                     </div>
                     <div class="card-body p-0">
                         <img src="/camera2_feed" class="img-fluid" alt="Camera 2 Feed" id="camera2-feed">
@@ -129,9 +84,43 @@
             </div>
         </div>
 
+        <!-- Statistics Cards -->
+        <div class="row" id="stats-container">
+            <div class="col-md-3 col-sm-6">
+                <div class="card dashboard-card bg-white">
+                    <div class="card-body text-center">
+                        <div class="stat-number text-primary" id="entry-count">0</div>
+                        <div class="stat-label">ENTRY EVENTS</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card dashboard-card bg-white">
+                    <div class="card-body text-center">
+                        <div class="stat-number text-success" id="exit-count">0</div>
+                        <div class="stat-label">EXIT EVENTS</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card dashboard-card bg-white">
+                    <div class="card-body text-center">
+                        <div class="stat-number text-info" id="journey-count">0</div>
+                        <div class="stat-label">VEHICLE JOURNEYS</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card dashboard-card bg-white">
+                    <div class="card-body text-center">
+                        <div class="stat-number text-warning" id="employee-count">0</div>
+                        <div class="stat-label">EMPLOYEE VEHICLES</div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-
-        <!-- Vehicle Data Table -->
+        <!-- Vehicle Records Table -->
         <div class="row mt-4">
             <div class="col-12">
                 <div class="card dashboard-card">
@@ -145,14 +134,14 @@
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Front Plate (Entry)</th>
-                                        <th>Rear Plate (Entry)</th>
+                                        <th>Camera 1 Plate</th>
+                                        <th>Camera 2 Plate</th>
                                         <th>Entry Time</th>
                                         <th>Exit Time</th>
                                         <th>Employee Vehicle</th>
                                     </tr>
                                 </thead>
-                                <tbody id="vehicle-table-body">
+                                <tbody id="vehicle-records-table">
                                     <tr>
                                         <td colspan="5" class="text-center py-3">
                                             <div class="spinner-border text-primary" role="status">
@@ -170,8 +159,6 @@
         </div>
     </div>
 
-
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Update current time
@@ -185,8 +172,8 @@
         // Fetch data from API
         async function fetchData() {
             try {
-                // Show loading state
-                document.getElementById('vehicle-table-body').innerHTML = `
+                // Show loading state for table
+                document.getElementById('vehicle-records-table').innerHTML = `
                     <tr>
                         <td colspan="5" class="text-center py-3">
                             <div class="spinner-border text-primary" role="status">
@@ -202,144 +189,38 @@
                 const statsData = await statsResponse.json();
                 
                 if (statsData.success) {
-                    // Update vehicle table
+                    // Update statistics
+                    document.getElementById('entry-count').textContent = statsData.stats.total_entry_events;
+                    document.getElementById('exit-count').textContent = statsData.stats.total_exit_events;
+                    document.getElementById('journey-count').textContent = statsData.stats.total_journeys;
+                    document.getElementById('employee-count').textContent = statsData.stats.employee_vehicles;
+
+                    // Update vehicle records table
                     let tableHtml = '';
-                    
-                    // Process vehicle records with dual-camera entry/exit logic
-                    const vehicleRecords = new Map();
-                    
-                    // Process entry events (Camera 1 captures front, Camera 2 captures rear)
-                    if (statsData.recent_entry_events) {
-                        statsData.recent_entry_events.forEach(event => {
-                            const frontPlate = event.front_plate_number || 'Unknown';
-                            const rearPlate = event.rear_plate_number || 'Unknown';
-                            const vehicleKey = frontPlate + '_' + rearPlate;
-                            
-                            vehicleRecords.set(vehicleKey, {
-                                front_plate: frontPlate,
-                                rear_plate: rearPlate,
-                                entry_time: event.entry_timestamp || event.entry_time,
-                                exit_time: null,
-                                is_employee: false,
-                                vehicle_make: event.vehicle_make || 'Unknown',
-                                vehicle_model: event.vehicle_model || 'Unknown',
-                                vehicle_color: event.vehicle_color || 'Unknown'
-                            });
-                        });
-                    }
-                    
-                    // Process exit events (Camera 2 captures rear first, then Camera 1 captures front)
-                    if (statsData.recent_exit_events) {
-                        statsData.recent_exit_events.forEach(event => {
-                            const frontPlate = event.front_plate_number || 'Unknown';
-                            const rearPlate = event.rear_plate_number || 'Unknown';
-                            const vehicleKey = frontPlate + '_' + rearPlate;
-                            
-                            if (vehicleRecords.has(vehicleKey)) {
-                                // Match with existing entry
-                                vehicleRecords.get(vehicleKey).exit_time = event.exit_timestamp || event.exit_time;
-                            } else {
-                                // Exit without entry (anomaly)
-                                vehicleRecords.set(vehicleKey, {
-                                    front_plate: frontPlate,
-                                    rear_plate: rearPlate,
-                                    entry_time: null,
-                                    exit_time: event.exit_timestamp || event.exit_time,
-                                    is_employee: false,
-                                    vehicle_make: event.vehicle_make || 'Unknown',
-                                    vehicle_model: event.vehicle_model || 'Unknown',
-                                    vehicle_color: event.vehicle_color || 'Unknown'
-                                });
-                            }
-                        });
-                    }
-                    
-                    // Check for employee vehicles
-                    if (statsData.employee_vehicles) {
-                        statsData.employee_vehicles.forEach(emp => {
-                            vehicleRecords.forEach((record, key) => {
-                                if (record.front_plate === emp.plate || record.rear_plate === emp.plate) {
-                                    record.is_employee = true;
-                                }
-                            });
-                        });
-                    }
-                    
-                    // Generate table rows
-                    if (vehicleRecords.size > 0) {
-                        vehicleRecords.forEach((record, key) => {
-                            const entryTime = record.entry_time ? new Date(record.entry_time).toLocaleString() : '-';
-                            const exitTime = record.exit_time ? new Date(record.exit_time).toLocaleString() : '-';
-                            const employeeBadge = record.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>';
-                            
-                            // Add anomaly detection
-                            let statusBadge = '';
-                            if (!record.entry_time && record.exit_time) {
-                                statusBadge = '<span class="badge bg-warning ms-1">Exit Only</span>';
-                            } else if (record.entry_time && !record.exit_time) {
-                                statusBadge = '<span class="badge bg-info ms-1">In Progress</span>';
-                            }
+                    if (statsData.recent_journeys && statsData.recent_journeys.length > 0) {
+                        statsData.recent_journeys.forEach(journey => {
+                            const entryTime = journey.entry_time ? new Date(journey.entry_time).toLocaleString() : '-';
+                            const exitTime = journey.exit_time ? new Date(journey.exit_time).toLocaleString() : '-';
+                            const isEmployee = journey.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>';
                             
                             tableHtml += `
                                 <tr>
-                                    <td>${record.front_plate} ${statusBadge}</td>
-                                    <td>${record.rear_plate}</td>
+                                    <td>${journey.front_plate || journey.plate || '-'}</td>
+                                    <td>${journey.rear_plate || journey.plate || '-'}</td>
                                     <td>${entryTime}</td>
                                     <td>${exitTime}</td>
-                                    <td>${employeeBadge}</td>
+                                    <td>${isEmployee}</td>
                                 </tr>
                             `;
                         });
                     } else {
-                        tableHtml = '<tr><td colspan="5" class="text-center py-3">No vehicle records found</td></tr>';
+                        tableHtml = '<tr><td colspan="5" class="text-center py-3 text-muted">No vehicle records found</td></tr>';
                     }
-                    
-                    document.getElementById('vehicle-table-body').innerHTML = tableHtml;
+                    document.getElementById('vehicle-records-table').innerHTML = tableHtml;
                 }
-
-
             } catch (error) {
                 console.error('Error fetching data:', error);
-                document.getElementById('vehicle-table-body').innerHTML = '<tr><td colspan="5" class="text-center py-3 text-danger">Error loading data</td></tr>';
-            }
-        }
-
-        // Simulate vehicle
-        async function simulateVehicle() {
-            try {
-                const response = await fetch('/api/simulate_vehicle');
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Show success message
-                    const alertDiv = document.createElement('div');
-                    alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
-                    alertDiv.style.bottom = '20px';
-                    alertDiv.style.right = '20px';
-                    alertDiv.style.zIndex = '9999';
-                    alertDiv.innerHTML = `
-                        <i class="bi bi-check-circle me-2"></i>
-                        <strong>Success!</strong> Vehicle ${data.plate} processed
-                        ${data.is_employee ? '<span class="badge bg-success ms-2">Employee</span>' : ''}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(alertDiv);
-                    
-                    // Auto remove after 3 seconds
-                    setTimeout(() => {
-                        if (alertDiv.parentNode) {
-                            alertDiv.parentNode.removeChild(alertDiv);
-                        }
-                    }, 3000);
-                    
-                    // Refresh data
-                    fetchData();
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                console.error('Error simulating vehicle:', error);
-                alert('Error simulating vehicle');
+                document.getElementById('vehicle-records-table').innerHTML = '<tr><td colspan="5" class="text-center py-3 text-danger">Error loading data</td></tr>';
             }
         }
 
@@ -348,10 +229,8 @@
             fetchData();
         });
 
-
-
-        // Auto-refresh every 1 second for real-time updates
-        setInterval(fetchData, 1000);
+        // Auto-refresh every 5 seconds for real-time updates
+        setInterval(fetchData, 5000);
         
         // Refresh camera feeds every 30 seconds to prevent caching
         setInterval(function() {
@@ -360,15 +239,5 @@
             document.getElementById('camera2-feed').src = '/camera2_feed?' + timestamp;
         }, 30000);
     </script>
-    
-    <style>
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        .spin {
-            animation: spin 1s linear infinite;
-        }
-    </style>
 </body>
 </html>

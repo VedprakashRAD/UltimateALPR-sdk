@@ -582,47 +582,9 @@ def create_main_dashboard_template():
             font-size: 0.9rem;
             color: #6c757d;
         }
-        .journey-item {
-            border-left: 4px solid #0d6efd;
-            padding-left: 15px;
-            margin-bottom: 15px;
-        }
-        .employee-item {
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
         .navbar-brand {
             font-weight: bold;
             color: #fff !important;
-        }
-        .camera-feed {
-            width: 100%;
-            height: 300px;
-            background-color: #000;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        .camera-placeholder {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: #fff;
-            font-size: 1.2rem;
-        }
-        .refresh-btn {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 1000;
-        }
-        .simulate-btn {
-            position: fixed;
-            bottom: 30px;
-            right: 100px;
-            z-index: 1000;
         }
     </style>
 </head>
@@ -646,11 +608,6 @@ def create_main_dashboard_template():
     <div class="container-fluid mt-4">
         <div class="row">
             <div class="col-12">
-                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>System Online!</strong> Access this dashboard at <a href="http://localhost:8080" class="alert-link">http://localhost:8080</a>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
                 <h2 class="mb-4">
                     <i class="bi bi-speedometer2 me-2"></i>Main Dashboard
                 </h2>
@@ -721,120 +678,44 @@ def create_main_dashboard_template():
             </div>
         </div>
 
+        <!-- Vehicle Records Table -->
         <div class="row mt-4">
-            <!-- Recent Activity -->
-            <div class="col-lg-8">
-                <!-- Recent Journeys -->
-                <div class="card dashboard-card mb-3">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-clock-history me-2"></i>Recent Vehicle Journeys
-                        </h5>
-                    </div>
-                    <div class="card-body" id="journeys-container" style="max-height: 300px; overflow-y: auto;">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mt-2">Loading recent journeys...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Entry and Exit Events Side by Side -->
-            <div class="col-lg-4">
-                <!-- Employee Vehicles -->
-                <div class="card dashboard-card mb-3">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-people me-2"></i>Employee Vehicles
-                        </h5>
-                    </div>
-                    <div class="card-body" id="employees-container">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Database Information -->
+            <div class="col-12">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
-                            <i class="bi bi-database me-2"></i>Database Information
+                            <i class="bi bi-table me-2"></i>Vehicle Records
                         </h5>
                     </div>
-                    <div class="card-body" id="database-container">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Camera 1 Plate</th>
+                                        <th>Camera 2 Plate</th>
+                                        <th>Entry Time</th>
+                                        <th>Exit Time</th>
+                                        <th>Employee Vehicle</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vehicle-records-table">
+                                    <tr>
+                                        <td colspan="5" class="text-center py-3">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            <p class="mt-2 mb-0">Loading vehicle records...</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Entry and Exit Events Row -->
-        <div class="row mt-4">
-            <div class="col-lg-6">
-                <!-- Recent Entry Events -->
-                <div class="card dashboard-card">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-box-arrow-in-right text-success me-2"></i>Recent Entry Events
-                        </h5>
-                    </div>
-                    <div class="card-body" id="entry-events-container" style="max-height: 400px; overflow-y: auto;">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-success" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mt-2">Loading entry events...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-lg-6">
-                <!-- Recent Exit Events -->
-                <div class="card dashboard-card">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-box-arrow-right text-danger me-2"></i>Recent Exit Events
-                        </h5>
-                    </div>
-                    <div class="card-body" id="exit-events-container" style="max-height: 400px; overflow-y: auto;">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-danger" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mt-2">Loading exit events...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
         </div>
     </div>
-
-    <!-- Test ALPR Button -->
-    <button class="btn btn-warning btn-lg rounded-circle" id="test-alpr-btn" title="Test ALPR" style="position: fixed; bottom: 30px; right: 170px; z-index: 1000;">
-        <i class="bi bi-camera"></i>
-    </button>
-
-    <!-- Simulate Vehicle Button -->
-    <button class="btn btn-success btn-lg rounded-circle simulate-btn" id="simulate-btn" title="Simulate Vehicle">
-        <i class="bi bi-car-front"></i>
-    </button>
-
-    <!-- Refresh Button -->
-    <button class="btn btn-primary btn-lg rounded-circle refresh-btn" id="refresh-btn" title="Refresh Data">
-        <i class="bi bi-arrow-repeat"></i>
-    </button>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
@@ -849,48 +730,16 @@ def create_main_dashboard_template():
         // Fetch data from API
         async function fetchData() {
             try {
-                // Show loading states
-                document.getElementById('journeys-container').innerHTML = `
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading recent journeys...</p>
-                    </div>
-                `;
-                
-                document.getElementById('entry-events-container').innerHTML = `
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-success" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading entry events...</p>
-                    </div>
-                `;
-                
-                document.getElementById('exit-events-container').innerHTML = `
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-danger" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Loading exit events...</p>
-                    </div>
-                `;
-                
-                document.getElementById('employees-container').innerHTML = `
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                `;
-                
-                document.getElementById('database-container').innerHTML = `
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
+                // Show loading state for table
+                document.getElementById('vehicle-records-table').innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2 mb-0">Loading vehicle records...</p>
+                        </td>
+                    </tr>
                 `;
 
                 // Fetch stats
@@ -904,188 +753,32 @@ def create_main_dashboard_template():
                     document.getElementById('journey-count').textContent = statsData.stats.total_journeys;
                     document.getElementById('employee-count').textContent = statsData.stats.employee_vehicles;
 
-                    // Update journeys
-                    let journeysHtml = '';
-                    if (statsData.recent_journeys.length > 0) {
+                    // Update vehicle records table
+                    let tableHtml = '';
+                    if (statsData.recent_journeys && statsData.recent_journeys.length > 0) {
                         statsData.recent_journeys.forEach(journey => {
-                            const entryTime = new Date(journey.entry_time);
-                            const exitTime = new Date(journey.exit_time);
-                            const durationMinutes = Math.floor(journey.duration_seconds / 60);
-                            const durationSeconds = journey.duration_seconds % 60;
+                            const entryTime = journey.entry_time ? new Date(journey.entry_time).toLocaleString() : '-';
+                            const exitTime = journey.exit_time ? new Date(journey.exit_time).toLocaleString() : '-';
+                            const isEmployee = journey.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>';
                             
-                            journeysHtml += `
-                                <div class="journey-item">
-                                    <div class="d-flex justify-content-between">
-                                        <h6 class="mb-1">
-                                            ${journey.plate} 
-                                            ${journey.is_employee ? '<span class="badge bg-success">Employee</span>' : ''}
-                                        </h6>
-                                        <small class="text-muted">${durationMinutes}m ${durationSeconds}s</small>
-                                    </div>
-                                    <p class="mb-1">
-                                        <i class="bi bi-box-arrow-in-right text-success me-1"></i> 
-                                        ${entryTime.toLocaleTimeString()} | 
-                                        <i class="bi bi-box-arrow-right text-danger me-1"></i> 
-                                        ${exitTime.toLocaleTimeString()}
-                                    </p>
-                                </div>
+                            tableHtml += `
+                                <tr>
+                                    <td>${journey.front_plate || journey.plate || '-'}</td>
+                                    <td>${journey.rear_plate || journey.plate || '-'}</td>
+                                    <td>${entryTime}</td>
+                                    <td>${exitTime}</td>
+                                    <td>${isEmployee}</td>
+                                </tr>
                             `;
                         });
                     } else {
-                        journeysHtml = '<p class="text-muted text-center py-3">No recent journeys</p>';
+                        tableHtml = '<tr><td colspan="5" class="text-center py-3 text-muted">No vehicle records found</td></tr>';
                     }
-                    document.getElementById('journeys-container').innerHTML = journeysHtml;
-
-                    // Update entry events
-                    let entryEventsHtml = '';
-                    if (statsData.recent_entry_events && statsData.recent_entry_events.length > 0) {
-                        statsData.recent_entry_events.forEach(event => {
-                            const entryTime = new Date(event.entry_time);
-                            const now = new Date();
-                            const diffMinutes = Math.floor((now - entryTime) / (1000 * 60));
-                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
-                            
-                            entryEventsHtml += `
-                                <div class="journey-item" style="border-left-color: #198754;">
-                                    <div class="d-flex justify-content-between">
-                                        <h6 class="mb-1">
-                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
-                                        </h6>
-                                        <small class="text-muted">${timeAgo}</small>
-                                    </div>
-                                    <p class="mb-1 text-muted">
-                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
-                                    </p>
-                                    <small class="text-muted">${entryTime.toLocaleTimeString()}</small>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        entryEventsHtml = '<p class="text-muted text-center py-3">No recent entry events</p>';
-                    }
-                    document.getElementById('entry-events-container').innerHTML = entryEventsHtml;
-
-                    // Update exit events
-                    let exitEventsHtml = '';
-                    if (statsData.recent_exit_events && statsData.recent_exit_events.length > 0) {
-                        statsData.recent_exit_events.forEach(event => {
-                            const exitTime = new Date(event.exit_time);
-                            const now = new Date();
-                            const diffMinutes = Math.floor((now - exitTime) / (1000 * 60));
-                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
-                            
-                            exitEventsHtml += `
-                                <div class="journey-item" style="border-left-color: #dc3545;">
-                                    <div class="d-flex justify-content-between">
-                                        <h6 class="mb-1">
-                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
-                                        </h6>
-                                        <small class="text-muted">${timeAgo}</small>
-                                    </div>
-                                    <p class="mb-1 text-muted">
-                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
-                                    </p>
-                                    <small class="text-muted">${exitTime.toLocaleTimeString()}</small>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        exitEventsHtml = '<p class="text-muted text-center py-3">No recent exit events</p>';
-                    }
-                    document.getElementById('exit-events-container').innerHTML = exitEventsHtml;
-
-                    // Update employees
-                    let employeesHtml = '';
-                    if (statsData.employee_vehicles.length > 0) {
-                        statsData.employee_vehicles.forEach(employee => {
-                            employeesHtml += `
-                                <div class="employee-item">
-                                    <div class="d-flex justify-content-between">
-                                        <strong>${employee.plate}</strong>
-                                        <span class="badge bg-primary">Employee</span>
-                                    </div>
-                                    <small class="text-muted">${employee.employee_name}</small>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        employeesHtml = '<p class="text-muted text-center">No employee vehicles registered</p>';
-                    }
-                    document.getElementById('employees-container').innerHTML = employeesHtml;
-                }
-
-                // Fetch database info
-                const dbResponse = await fetch('/api/database');
-                const dbData = await dbResponse.json();
-                
-                if (dbData.success) {
-                    let dbHtml = `
-                        <div class="row">
-                            <div class="col-6">
-                                <p><strong>Collections:</strong> ${dbData.db_stats.collections}</p>
-                                <p><strong>Data Size:</strong> ${dbData.db_stats.data_size_mb} MB</p>
-                                <p><strong>Storage Size:</strong> ${dbData.db_stats.storage_size_mb} MB</p>
-                            </div>
-                            <div class="col-6">
-                    `;
-                    
-                    Object.entries(dbData.collections).forEach(([name, count]) => {
-                        dbHtml += `<p><strong>${name}:</strong> ${count}</p>`;
-                    });
-                    
-                    dbHtml += `
-                            </div>
-                        </div>
-                    `;
-                    
-                    document.getElementById('database-container').innerHTML = dbHtml;
+                    document.getElementById('vehicle-records-table').innerHTML = tableHtml;
                 }
             } catch (error) {
                 console.error('Error fetching data:', error);
-                document.getElementById('journeys-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
-                document.getElementById('entry-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
-                document.getElementById('exit-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
-                document.getElementById('employees-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
-                document.getElementById('database-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
-            }
-        }
-
-        // Simulate vehicle
-        async function simulateVehicle() {
-            try {
-                const response = await fetch('/api/simulate_vehicle');
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Show success message
-                    const alertDiv = document.createElement('div');
-                    alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
-                    alertDiv.style.bottom = '20px';
-                    alertDiv.style.right = '20px';
-                    alertDiv.style.zIndex = '9999';
-                    alertDiv.innerHTML = `
-                        <i class="bi bi-check-circle me-2"></i>
-                        <strong>Success!</strong> Vehicle ${data.plate} processed
-                        ${data.is_employee ? '<span class="badge bg-success ms-2">Employee</span>' : ''}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(alertDiv);
-                    
-                    // Auto remove after 3 seconds
-                    setTimeout(() => {
-                        if (alertDiv.parentNode) {
-                            alertDiv.parentNode.removeChild(alertDiv);
-                        }
-                    }, 3000);
-                    
-                    // Refresh data
-                    fetchData();
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                console.error('Error simulating vehicle:', error);
-                alert('Error simulating vehicle');
+                document.getElementById('vehicle-records-table').innerHTML = '<tr><td colspan="5" class="text-center py-3 text-danger">Error loading data</td></tr>';
             }
         }
 
@@ -1094,60 +787,8 @@ def create_main_dashboard_template():
             fetchData();
         });
 
-        // Refresh button
-        document.getElementById('refresh-btn').addEventListener('click', function() {
-            const btn = this;
-            const icon = btn.querySelector('i');
-            
-            // Add spinning animation
-            icon.classList.add('spin');
-            btn.classList.add('btn-secondary');
-            btn.classList.remove('btn-primary');
-            
-            fetchData().then(() => {
-                // Remove spinning animation
-                setTimeout(() => {
-                    icon.classList.remove('spin');
-                    btn.classList.add('btn-primary');
-                    btn.classList.remove('btn-secondary');
-                }, 500);
-            });
-        });
-
-        // Test ALPR button
-        document.getElementById('test-alpr-btn').addEventListener('click', async function() {
-            try {
-                const response = await fetch('/api/test_alpr');
-                const data = await response.json();
-                
-                const alertDiv = document.createElement('div');
-                alertDiv.className = data.success ? 'alert alert-info alert-dismissible fade show position-fixed' : 'alert alert-danger alert-dismissible fade show position-fixed';
-                alertDiv.style.bottom = '20px';
-                alertDiv.style.left = '20px';
-                alertDiv.style.zIndex = '9999';
-                alertDiv.style.maxWidth = '400px';
-                alertDiv.innerHTML = `
-                    <i class="bi bi-camera me-2"></i>
-                    <strong>ALPR Test:</strong> ${data.message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                `;
-                document.body.appendChild(alertDiv);
-                
-                setTimeout(() => {
-                    if (alertDiv.parentNode) {
-                        alertDiv.parentNode.removeChild(alertDiv);
-                    }
-                }, 5000);
-            } catch (error) {
-                console.error('Error testing ALPR:', error);
-            }
-        });
-
-        // Simulate vehicle button
-        document.getElementById('simulate-btn').addEventListener('click', simulateVehicle);
-
-        // Auto-refresh every 1 second for real-time updates
-        setInterval(fetchData, 1000);
+        // Auto-refresh every 5 seconds for real-time updates
+        setInterval(fetchData, 5000);
         
         // Refresh camera feeds every 30 seconds to prevent caching
         setInterval(function() {
@@ -1156,16 +797,6 @@ def create_main_dashboard_template():
             document.getElementById('camera2-feed').src = '/camera2_feed?' + timestamp;
         }, 30000);
     </script>
-    
-    <style>
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        .spin {
-            animation: spin 1s linear infinite;
-        }
-    </style>
 </body>
 </html>'''
     
@@ -1204,9 +835,9 @@ def main():
     
     print()
     print("📱 Web Dashboard:")
-    print("   Access at: http://localhost:8080")
-    print("   Camera 1 Feed: http://localhost:8080/camera1_feed")
-    print("   Camera 2 Feed: http://localhost:8080/camera2_feed")
+    print("   Access at: http://localhost:8088")
+    print("   Camera 1 Feed: http://localhost:8088/camera1_feed")
+    print("   Camera 2 Feed: http://localhost:8088/camera2_feed")
     print()
     print("✨ New Features:")
     print("   - Click the car icon to simulate vehicle events")
@@ -1219,7 +850,7 @@ def main():
     
     # Run the Flask app
     try:
-        app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        app.run(host='0.0.0.0', port=8088, debug=False, use_reloader=False)
     except KeyboardInterrupt:
         print("\n🛑 Stopping all services...")
         # Close database connection
