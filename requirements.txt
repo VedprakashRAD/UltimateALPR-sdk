@@ -1,8 +1,46 @@
+# Core Dependencies
 dnspython==2.8.0
-numpy==2.2.6
-opencv-python==4.12.0.88
-packaging==25.0
-pillow==12.0.0
-psutil==7.1.3
-pymongo==4.15.3
-pytesseract==0.3.13
+numpy>=1.21.0
+opencv-python>=4.8.0
+packaging>=20.0
+pillow>=9.0.0
+psutil>=5.8.0
+pymongo>=4.0.0
+pytesseract>=0.3.13
+
+# Enhanced OCR Dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.21.0
+easyocr>=1.7.0
+paddleocr>=2.7.0
+
+# Web Framework
+flask>=2.3.0
+
+# AI/ML Models
+ultralytics>=8.0.0
+scipy>=1.9.0
+scikit-image>=0.19.0
+
+# Additional OCR Support
+python-bidi>=0.4.2
+shapely>=1.8.0
+pyclipper>=1.3.0
+ninja>=1.10.0
+
+# Image Processing
+imageio>=2.25.0
+tifffile>=2022.8.12
+lazy-loader>=0.1
+
+# Utilities
+requests>=2.28.0
+pyyaml>=6.0
+regex>=2022.0.0
+tokenizers>=0.13.0
+safetensors>=0.3.0
+tqdm>=4.64.0
+huggingface-hub>=0.15.0
+filelock>=3.8.0
+fsspec>=2022.8.0
