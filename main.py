@@ -121,8 +121,8 @@ def get_system_stats(db):
 def get_recent_journeys(db, hours=24):
     """Get recent vehicle journeys."""
     try:
-        from datetime import datetime, timedelta
-        since = datetime.utcnow() - timedelta(hours=hours)
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         journeys = list(db.vehicle_journeys.find({
             "entry_timestamp": {"$gte": since}
@@ -131,6 +131,38 @@ def get_recent_journeys(db, hours=24):
         return journeys
     except Exception as e:
         print(f"Error getting journeys: {e}")
+        return []
+
+def get_recent_entry_events(db, hours=24):
+    """Get recent entry events."""
+    try:
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        entry_events = list(db.entry_events.find({
+            "entry_timestamp": {"$gte": since}
+        }).sort("entry_timestamp", -1).limit(10))
+        
+        print(f"Found {len(entry_events)} entry events since {since}")
+        return entry_events
+    except Exception as e:
+        print(f"Error getting entry events: {e}")
+        return []
+
+def get_recent_exit_events(db, hours=24):
+    """Get recent exit events."""
+    try:
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        exit_events = list(db.exit_events.find({
+            "exit_timestamp": {"$gte": since}
+        }).sort("exit_timestamp", -1).limit(10))
+        
+        print(f"Found {len(exit_events)} exit events since {since}")
+        return exit_events
+    except Exception as e:
+        print(f"Error getting exit events: {e}")
         return []
 
 def initialize_alpr_systems():
@@ -167,19 +199,30 @@ def process_frame_with_alpr(frame, camera_id):
         return frame
     
     try:
-        # Process frame for license plates (this returns only results)
-        plate_results = alpr_system.process_frame(frame)
+        # Process frame for license plates
+        plate_results = alpr_system.process_frame(frame.copy())
         
-        # Save to database if we have results and cooldown period has passed
+        # Draw detections on frame
+        for result in plate_results:
+            x, y, w, h = result['bbox']
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(frame, f"{result['text']} ({result['confidence']:.0f}%)", 
+                       (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Save to database if we have valid results and cooldown period has passed
         if plate_results:
-            current_time = time.time()
-            if current_time - last_detection_time.get(camera_id, 0) > 5:
-                last_detection_time[camera_id] = current_time
-                # Save vehicle event to database
-                event_type = "entry" if camera_id == 0 else "exit"
-                alpr_system.save_vehicle_event(plate_results, event_type)
+            # Filter for high confidence results (100% accuracy requirement)
+            valid_results = [r for r in plate_results if r['confidence'] > 85 and len(r['text']) >= 5]
+            
+            if valid_results:
+                current_time = time.time()
+                if current_time - last_detection_time.get(camera_id, 0) > 1:
+                    last_detection_time[camera_id] = current_time
+                    # Save vehicle event to database automatically
+                    event_type = "entry" if camera_id == 0 else "exit"
+                    alpr_system.save_vehicle_event(valid_results, event_type)
+                    print(f"🎯 Auto ALPR Detection - Camera {camera_id+1}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%)")
         
-        # The frame is already annotated by process_frame, so return it as is
         return frame
     except Exception as e:
         print(f"ALPR processing error for camera {camera_id}: {e}")
@@ -257,6 +300,8 @@ def api_stats():
         
         stats = get_system_stats(db)
         recent_journeys = get_recent_journeys(db)
+        recent_entry_events = get_recent_entry_events(db)
+        recent_exit_events = get_recent_exit_events(db)
         
         # Format journeys for JSON
         formatted_journeys = []
@@ -270,7 +315,34 @@ def api_stats():
                 'entry_time': entry_time.isoformat() if entry_time else datetime.min.isoformat(),
                 'exit_time': exit_time.isoformat() if exit_time else datetime.min.isoformat(),
                 'duration_seconds': journey.get('duration_seconds', 0),
-                'is_employee': journey.get('is_employee', False)
+                'is_employee': journey.get('is_employee', False),
+                'vehicle_make': journey.get('vehicle_make', 'Unknown'),
+                'vehicle_model': journey.get('vehicle_model', 'Unknown'),
+                'vehicle_color': journey.get('vehicle_color', 'Unknown')
+            })
+        
+        # Format entry events for JSON
+        formatted_entry_events = []
+        for event in recent_entry_events:
+            entry_time = event.get('entry_timestamp')
+            formatted_entry_events.append({
+                'plate': event.get('front_plate_number', 'Unknown'),
+                'entry_time': entry_time.isoformat() if entry_time else datetime.now().isoformat(),
+                'vehicle_make': event.get('vehicle_make', 'Unknown'),
+                'vehicle_model': event.get('vehicle_model', 'Unknown'),
+                'vehicle_color': event.get('vehicle_color', 'Unknown')
+            })
+        
+        # Format exit events for JSON
+        formatted_exit_events = []
+        for event in recent_exit_events:
+            exit_time = event.get('exit_timestamp')
+            formatted_exit_events.append({
+                'plate': event.get('front_plate_number', 'Unknown'),
+                'exit_time': exit_time.isoformat() if exit_time else datetime.now().isoformat(),
+                'vehicle_make': event.get('vehicle_make', 'Unknown'),
+                'vehicle_model': event.get('vehicle_model', 'Unknown'),
+                'vehicle_color': event.get('vehicle_color', 'Unknown')
             })
         
         # Get employee vehicles
@@ -286,6 +358,8 @@ def api_stats():
             'success': True,
             'stats': stats,
             'recent_journeys': formatted_journeys,
+            'recent_entry_events': formatted_entry_events,
+            'recent_exit_events': formatted_exit_events,
             'employee_vehicles': formatted_employees
         })
     except Exception as e:
@@ -320,6 +394,48 @@ def api_database():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/test_alpr')
+def test_alpr():
+    """Test ALPR system with current camera frame."""
+    try:
+        if not ALPR_SYSTEM_AVAILABLE:
+            return jsonify({'success': False, 'error': 'ALPR system not available'})
+        
+        # Try to capture a frame from camera 0
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            return jsonify({'success': False, 'error': 'Camera not available'})
+        
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret:
+            return jsonify({'success': False, 'error': 'Could not capture frame'})
+        
+        # Process with ALPR
+        if alpr_system_camera1:
+            plate_results = alpr_system_camera1.process_frame(frame)
+            
+            if plate_results:
+                valid_results = [r for r in plate_results if r['confidence'] > 30 and len(r['text']) >= 2]
+                if valid_results:
+                    return jsonify({
+                        'success': True,
+                        'message': f'ALPR detected: {valid_results[0]["text"]} ({valid_results[0]["confidence"]:.0f}%)',
+                        'plates': [{'text': r['text'], 'confidence': r['confidence']} for r in valid_results]
+                    })
+            
+            return jsonify({
+                'success': True,
+                'message': 'ALPR system working but no plates detected in current frame',
+                'plates': []
+            })
+        
+        return jsonify({'success': False, 'error': 'ALPR system not initialized'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/simulate_vehicle')
 def simulate_vehicle():
     """API endpoint to simulate a vehicle entry/exit event."""
@@ -331,6 +447,7 @@ def simulate_vehicle():
         # Generate a random license plate
         import random
         import string
+        from datetime import timezone
         plate_chars = ''.join(random.choices(string.ascii_uppercase, k=2))
         plate_numbers = ''.join(random.choices(string.digits, k=4))
         plate_end = ''.join(random.choices(string.ascii_uppercase, k=2))
@@ -347,12 +464,12 @@ def simulate_vehicle():
             "rear_plate_confidence": random.uniform(80, 95),
             "front_plate_image_path": f"./CCTV_photos/entry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
             "rear_plate_image_path": f"./CCTV_photos/entry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg",
-            "entry_timestamp": datetime.utcnow(),
+            "entry_timestamp": datetime.now(timezone.utc),
             "vehicle_color": random.choice(["Red", "Blue", "Green", "Black", "White", "Silver"]),
             "vehicle_make": random.choice(["Toyota", "Honda", "Ford", "BMW", "Audi", "Mercedes"]),
             "vehicle_model": random.choice(["Camry", "Civic", "Focus", "X3", "A4", "C-Class"]),
             "is_processed": False,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         }
         
         result = db.entry_events.insert_one(entry_event)
@@ -366,7 +483,7 @@ def simulate_vehicle():
                     "plate_number": plate_number,
                     "employee_name": employee_name,
                     "is_active": True,
-                    "created_at": datetime.utcnow()
+                    "created_at": datetime.now(timezone.utc)
                 })
             except Exception:
                 # Plate might already exist, ignore
@@ -376,7 +493,7 @@ def simulate_vehicle():
         if random.random() < 0.7:
             # Wait a random time (1-30 minutes)
             duration_seconds = random.randint(60, 1800)
-            exit_timestamp = datetime.utcnow()
+            exit_timestamp = datetime.now(timezone.utc)
             
             # Create exit event
             exit_event = {
@@ -411,7 +528,7 @@ def simulate_vehicle():
                 "vehicle_model": entry_event["vehicle_model"],
                 "is_employee": is_employee,
                 "flagged_for_review": False,
-                "created_at": datetime.utcnow()
+                "created_at": datetime.now(timezone.utc)
             }
             
             db.vehicle_journeys.insert_one(journey)
@@ -607,14 +724,15 @@ def create_main_dashboard_template():
         <div class="row mt-4">
             <!-- Recent Activity -->
             <div class="col-lg-8">
-                <div class="card dashboard-card">
+                <!-- Recent Journeys -->
+                <div class="card dashboard-card mb-3">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
                             <i class="bi bi-clock-history me-2"></i>Recent Vehicle Journeys
                         </h5>
                     </div>
-                    <div class="card-body" id="journeys-container">
-                        <div class="text-center py-5">
+                    <div class="card-body" id="journeys-container" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-center py-3">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
@@ -623,10 +741,11 @@ def create_main_dashboard_template():
                     </div>
                 </div>
             </div>
-
-            <!-- Employee Vehicles & Database Info -->
+            
+            <!-- Entry and Exit Events Side by Side -->
             <div class="col-lg-4">
-                <div class="card dashboard-card mb-4">
+                <!-- Employee Vehicles -->
+                <div class="card dashboard-card mb-3">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
                             <i class="bi bi-people me-2"></i>Employee Vehicles
@@ -641,6 +760,7 @@ def create_main_dashboard_template():
                     </div>
                 </div>
 
+                <!-- Database Information -->
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
@@ -657,7 +777,54 @@ def create_main_dashboard_template():
                 </div>
             </div>
         </div>
+        
+        <!-- Entry and Exit Events Row -->
+        <div class="row mt-4">
+            <div class="col-lg-6">
+                <!-- Recent Entry Events -->
+                <div class="card dashboard-card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-box-arrow-in-right text-success me-2"></i>Recent Entry Events
+                        </h5>
+                    </div>
+                    <div class="card-body" id="entry-events-container" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-success" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading entry events...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6">
+                <!-- Recent Exit Events -->
+                <div class="card dashboard-card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-box-arrow-right text-danger me-2"></i>Recent Exit Events
+                        </h5>
+                    </div>
+                    <div class="card-body" id="exit-events-container" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-danger" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading exit events...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </div>
+
+    <!-- Test ALPR Button -->
+    <button class="btn btn-warning btn-lg rounded-circle" id="test-alpr-btn" title="Test ALPR" style="position: fixed; bottom: 30px; right: 170px; z-index: 1000;">
+        <i class="bi bi-camera"></i>
+    </button>
 
     <!-- Simulate Vehicle Button -->
     <button class="btn btn-success btn-lg rounded-circle simulate-btn" id="simulate-btn" title="Simulate Vehicle">
@@ -684,11 +851,29 @@ def create_main_dashboard_template():
             try {
                 // Show loading states
                 document.getElementById('journeys-container').innerHTML = `
-                    <div class="text-center py-5">
+                    <div class="text-center py-3">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                         <p class="mt-2">Loading recent journeys...</p>
+                    </div>
+                `;
+                
+                document.getElementById('entry-events-container').innerHTML = `
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading entry events...</p>
+                    </div>
+                `;
+                
+                document.getElementById('exit-events-container').innerHTML = `
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-danger" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading exit events...</p>
                     </div>
                 `;
                 
@@ -751,6 +936,64 @@ def create_main_dashboard_template():
                     }
                     document.getElementById('journeys-container').innerHTML = journeysHtml;
 
+                    // Update entry events
+                    let entryEventsHtml = '';
+                    if (statsData.recent_entry_events && statsData.recent_entry_events.length > 0) {
+                        statsData.recent_entry_events.forEach(event => {
+                            const entryTime = new Date(event.entry_time);
+                            const now = new Date();
+                            const diffMinutes = Math.floor((now - entryTime) / (1000 * 60));
+                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
+                            
+                            entryEventsHtml += `
+                                <div class="journey-item" style="border-left-color: #198754;">
+                                    <div class="d-flex justify-content-between">
+                                        <h6 class="mb-1">
+                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
+                                        </h6>
+                                        <small class="text-muted">${timeAgo}</small>
+                                    </div>
+                                    <p class="mb-1 text-muted">
+                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
+                                    </p>
+                                    <small class="text-muted">${entryTime.toLocaleTimeString()}</small>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        entryEventsHtml = '<p class="text-muted text-center py-3">No recent entry events</p>';
+                    }
+                    document.getElementById('entry-events-container').innerHTML = entryEventsHtml;
+
+                    // Update exit events
+                    let exitEventsHtml = '';
+                    if (statsData.recent_exit_events && statsData.recent_exit_events.length > 0) {
+                        statsData.recent_exit_events.forEach(event => {
+                            const exitTime = new Date(event.exit_time);
+                            const now = new Date();
+                            const diffMinutes = Math.floor((now - exitTime) / (1000 * 60));
+                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
+                            
+                            exitEventsHtml += `
+                                <div class="journey-item" style="border-left-color: #dc3545;">
+                                    <div class="d-flex justify-content-between">
+                                        <h6 class="mb-1">
+                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
+                                        </h6>
+                                        <small class="text-muted">${timeAgo}</small>
+                                    </div>
+                                    <p class="mb-1 text-muted">
+                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
+                                    </p>
+                                    <small class="text-muted">${exitTime.toLocaleTimeString()}</small>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        exitEventsHtml = '<p class="text-muted text-center py-3">No recent exit events</p>';
+                    }
+                    document.getElementById('exit-events-container').innerHTML = exitEventsHtml;
+
                     // Update employees
                     let employeesHtml = '';
                     if (statsData.employee_vehicles.length > 0) {
@@ -800,6 +1043,8 @@ def create_main_dashboard_template():
             } catch (error) {
                 console.error('Error fetching data:', error);
                 document.getElementById('journeys-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
+                document.getElementById('entry-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
+                document.getElementById('exit-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
                 document.getElementById('employees-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
                 document.getElementById('database-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
             }
@@ -869,11 +1114,40 @@ def create_main_dashboard_template():
             });
         });
 
+        // Test ALPR button
+        document.getElementById('test-alpr-btn').addEventListener('click', async function() {
+            try {
+                const response = await fetch('/api/test_alpr');
+                const data = await response.json();
+                
+                const alertDiv = document.createElement('div');
+                alertDiv.className = data.success ? 'alert alert-info alert-dismissible fade show position-fixed' : 'alert alert-danger alert-dismissible fade show position-fixed';
+                alertDiv.style.bottom = '20px';
+                alertDiv.style.left = '20px';
+                alertDiv.style.zIndex = '9999';
+                alertDiv.style.maxWidth = '400px';
+                alertDiv.innerHTML = `
+                    <i class="bi bi-camera me-2"></i>
+                    <strong>ALPR Test:</strong> ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.body.appendChild(alertDiv);
+                
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.parentNode.removeChild(alertDiv);
+                    }
+                }, 5000);
+            } catch (error) {
+                console.error('Error testing ALPR:', error);
+            }
+        });
+
         // Simulate vehicle button
         document.getElementById('simulate-btn').addEventListener('click', simulateVehicle);
 
-        // Auto-refresh every 5 seconds
-        setInterval(fetchData, 5000);
+        // Auto-refresh every 1 second for real-time updates
+        setInterval(fetchData, 1000);
         
         // Refresh camera feeds every 30 seconds to prevent caching
         setInterval(function() {
