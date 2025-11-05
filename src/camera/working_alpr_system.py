@@ -381,8 +381,39 @@ class WorkingALPRSystem:
         
         return "", 0.0
     
+    def correct_ocr_mistakes(self, text):
+        """Fix OCR mistakes based on Indian license plate format: XX00XX0000"""
+        if len(text) < 8:
+            return text
+            
+        corrected = list(text)
+        
+        # Indian format: XX00XX0000 (positions 0-1: letters, 2-3: numbers, 4-5: letters, 6-9: numbers)
+        for i, char in enumerate(corrected):
+            if i < 2:  # First 2 positions should be letters
+                if char.isdigit():
+                    digit_to_letter = {'0': 'O', '1': 'I', '5': 'S', '6': 'G', '8': 'B'}
+                    corrected[i] = digit_to_letter.get(char, char)
+            elif 2 <= i < 4:  # Positions 2-3 should be numbers
+                if char.isalpha():
+                    letter_to_digit = {'O': '0', 'I': '1', 'S': '5', 'G': '6', 'B': '8', 'Z': '2'}
+                    corrected[i] = letter_to_digit.get(char, char)
+            elif 4 <= i < 6:  # Positions 4-5 should be letters
+                if char.isdigit():
+                    digit_to_letter = {'0': 'O', '1': 'I', '5': 'S', '6': 'G', '8': 'B'}
+                    corrected[i] = digit_to_letter.get(char, char)
+            elif i >= 6:  # Last 4 positions should be numbers
+                if char.isalpha():
+                    letter_to_digit = {'O': '0', 'I': '1', 'S': '5', 'G': '6', 'B': '8', 'Z': '2'}
+                    corrected[i] = letter_to_digit.get(char, char)
+        
+        result = ''.join(corrected)
+        if result != text:
+            print(f"🔧 Corrected: {text} → {result}")
+        return result
+    
     def read_plate_text(self, plate_image):
-        """Enhanced multi-model OCR pipeline with hierarchical fallback."""
+        """Enhanced multi-model OCR pipeline with hierarchical fallback and character correction."""
         if plate_image is None or plate_image.size == 0:
             return "EMPTY", 0.0
         
@@ -404,12 +435,15 @@ class WorkingALPRSystem:
             try:
                 text, confidence = method_func(enhanced_image)
                 
+                # Apply character corrections
+                corrected_text = self.correct_ocr_mistakes(text)
+                
                 # Validate Indian license plate format
-                if self.validate_plate_format(text):
+                if self.validate_plate_format(corrected_text):
                     confidence += 10  # Bonus for valid format
                 
-                if confidence > best_confidence and len(text) >= 5:
-                    best_text = text
+                if confidence > best_confidence and len(corrected_text) >= 5:
+                    best_text = corrected_text
                     best_confidence = confidence
                     best_method = method_name
                     
@@ -479,21 +513,27 @@ class WorkingALPRSystem:
         return "", 0.0
     
     def validate_plate_format(self, text):
-        """Validate Indian license plate formats."""
-        if not text or len(text) < 8 or len(text) > 10:
+        """Validate Indian license plate formats with flexible matching."""
+        if not text or len(text) < 6 or len(text) > 12:
             return False
         
-        # Remove invalid characters I and O
-        if 'I' in text or 'O' in text:
-            return False
-        
-        # Indian license plate patterns (strict)
+        # Indian license plate patterns
         patterns = [
-            r'^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}$',  # Standard: XX00X0000 or XX00XX0000
-            r'^[0-9]{2}BH[0-9]{4}[A-Z]{2}$'           # Bharat Series: 00BH0000XX
+            r'^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$',      # Standard: XX00XX0000 (like KA05NP3747)
+            r'^[A-Z]{2}[0-9]{2}[A-Z]{1}[0-9]{4}$',      # Standard: XX00X0000
+            r'^[0-9]{2}BH[0-9]{4}[A-Z]{2}$',            # Bharat Series: 00BH0000XX
+            r'^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{3,4}$'   # Flexible format
         ]
         
-        return any(re.match(pattern, text) for pattern in patterns)
+        # Also accept if it has reasonable mix of letters and numbers
+        has_letters = any(c.isalpha() for c in text)
+        has_numbers = any(c.isdigit() for c in text)
+        reasonable_length = 6 <= len(text) <= 12
+        
+        pattern_match = any(re.match(pattern, text) for pattern in patterns)
+        flexible_match = has_letters and has_numbers and reasonable_length
+        
+        return pattern_match or flexible_match
     
     def extract_plate_info(self, plate_text):
         """Extract information from Indian license plates."""
@@ -560,7 +600,7 @@ class WorkingALPRSystem:
             # Read plate text
             plate_text, confidence = self.read_plate_text(plate_img)
             
-            if len(plate_text) >= 5 and confidence > 85:  # Deep LPR accuracy requirement
+            if len(plate_text) >= 5 and confidence > 70:  # Lowered threshold for better detection
                 # Save plate image to CCTV_photos directory
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 plate_filename = f"plate_{timestamp}_{i}.jpg"

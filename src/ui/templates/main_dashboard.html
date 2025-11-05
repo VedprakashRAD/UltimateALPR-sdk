@@ -141,15 +141,8 @@
                                         <th>Employee Vehicle</th>
                                     </tr>
                                 </thead>
-                                <tbody id="vehicle-records-table">
-                                    <tr>
-                                        <td colspan="5" class="text-center py-3">
-                                            <div class="spinner-border text-primary" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                            <p class="mt-2 mb-0">Loading vehicle records...</p>
-                                        </td>
-                                    </tr>
+                                <tbody id="vehicle-records">
+                                    <!-- Vehicle records will be populated here -->
                                 </tbody>
                             </table>
                         </div>
@@ -161,83 +154,52 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Update current time
         function updateTime() {
             const now = new Date();
-            document.getElementById('current-time').textContent = now.toLocaleString();
+            document.getElementById('current-time').textContent = now.toLocaleTimeString();
         }
-        updateTime();
-        setInterval(updateTime, 1000);
 
-        // Fetch data from API
-        async function fetchData() {
-            try {
-                // Show loading state for table
-                document.getElementById('vehicle-records-table').innerHTML = `
-                    <tr>
-                        <td colspan="5" class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mt-2 mb-0">Loading vehicle records...</p>
-                        </td>
-                    </tr>
-                `;
-
-                // Fetch stats
-                const statsResponse = await fetch('/api/stats');
-                const statsData = await statsResponse.json();
-                
-                if (statsData.success) {
-                    // Update statistics
-                    document.getElementById('entry-count').textContent = statsData.stats.total_entry_events;
-                    document.getElementById('exit-count').textContent = statsData.stats.total_exit_events;
-                    document.getElementById('journey-count').textContent = statsData.stats.total_journeys;
-                    document.getElementById('employee-count').textContent = statsData.stats.employee_vehicles;
-
+        function loadStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('entry-count').textContent = data.entry_events || 0;
+                    document.getElementById('exit-count').textContent = data.exit_events || 0;
+                    document.getElementById('journey-count').textContent = data.vehicle_journeys || 0;
+                    document.getElementById('employee-count').textContent = data.employee_vehicles || 0;
+                    
                     // Update vehicle records table
-                    let tableHtml = '';
-                    if (statsData.recent_journeys && statsData.recent_journeys.length > 0) {
-                        statsData.recent_journeys.forEach(journey => {
-                            const entryTime = journey.entry_time ? new Date(journey.entry_time).toLocaleString() : '-';
-                            const exitTime = journey.exit_time ? new Date(journey.exit_time).toLocaleString() : '-';
-                            const isEmployee = journey.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>';
-                            
-                            tableHtml += `
-                                <tr>
-                                    <td>${journey.front_plate || journey.plate || '-'}</td>
-                                    <td>${journey.rear_plate || journey.plate || '-'}</td>
-                                    <td>${entryTime}</td>
-                                    <td>${exitTime}</td>
-                                    <td>${isEmployee}</td>
-                                </tr>
+                    const tbody = document.getElementById('vehicle-records');
+                    tbody.innerHTML = '';
+                    
+                    if (data.recent_activity && data.recent_activity.length > 0) {
+                        data.recent_activity.forEach(record => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${record.front_plate_number || 'N/A'}</td>
+                                <td>${record.rear_plate_number || 'N/A'}</td>
+                                <td>${record.entry_timestamp ? new Date(record.entry_timestamp).toLocaleString() : 'N/A'}</td>
+                                <td>${record.exit_timestamp ? new Date(record.exit_timestamp).toLocaleString() : 'Pending'}</td>
+                                <td>${record.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
                             `;
+                            tbody.appendChild(row);
                         });
                     } else {
-                        tableHtml = '<tr><td colspan="5" class="text-center py-3 text-muted">No vehicle records found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No vehicle records found</td></tr>';
                     }
-                    document.getElementById('vehicle-records-table').innerHTML = tableHtml;
-                }
-            } catch (error) {
-                console.error('Error fetching data:', error);
-                document.getElementById('vehicle-records-table').innerHTML = '<tr><td colspan="5" class="text-center py-3 text-danger">Error loading data</td></tr>';
-            }
+                })
+                .catch(error => {
+                    console.error('Error loading stats:', error);
+                });
         }
 
-        // Initial data load
-        document.addEventListener('DOMContentLoaded', function() {
-            fetchData();
-        });
+        // Update time every second
+        setInterval(updateTime, 1000);
+        updateTime();
 
-        // Auto-refresh every 5 seconds for real-time updates
-        setInterval(fetchData, 5000);
-        
-        // Refresh camera feeds every 30 seconds to prevent caching
-        setInterval(function() {
-            const timestamp = new Date().getTime();
-            document.getElementById('camera1-feed').src = '/camera1_feed?' + timestamp;
-            document.getElementById('camera2-feed').src = '/camera2_feed?' + timestamp;
-        }, 30000);
+        // Load stats every 5 seconds
+        setInterval(loadStats, 5000);
+        loadStats();
     </script>
 </body>
 </html>
