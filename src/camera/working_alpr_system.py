@@ -205,14 +205,14 @@ class WorkingALPRSystem:
                     boxes = result.boxes
                     if boxes is not None:
                         for box in boxes:
-                            # Check if detected object is a vehicle (car, truck, bus)
+                            # Check if detected object is a vehicle (car, truck, bus, motorcycle)
                             class_id = int(box.cls[0])
-                            if class_id in [2, 5, 7]:  # car, bus, truck in COCO dataset
+                            if class_id in [1, 2, 3, 5, 7]:  # bicycle, car, motorcycle, bus, truck in COCO dataset
                                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                                 x, y, w, h = int(x1), int(y1), int(x2-x1), int(y2-y1)
                                 
-                                # Extract potential plate region (front/rear of vehicle)
-                                plate_regions = self.extract_plate_regions(frame, x, y, w, h)
+                                # Extract potential plate region based on vehicle type
+                                plate_regions = self.extract_plate_regions(frame, x, y, w, h, class_id)
                                 for plate_img, bbox in plate_regions:
                                     plates.append({
                                         'image': plate_img,
@@ -246,22 +246,51 @@ class WorkingALPRSystem:
         
         return plates
         
-    def extract_plate_regions(self, frame, x, y, w, h):
-        """Extract potential license plate regions from detected vehicle."""
+    def extract_plate_regions(self, frame, x, y, w, h, class_id):
+        """Extract potential license plate regions from detected vehicle based on type."""
         regions = []
         
-        # Front plate region (bottom 20% of vehicle)
-        front_y = y + int(h * 0.8)
-        front_h = int(h * 0.2)
-        if front_y + front_h <= frame.shape[0]:
-            front_plate = frame[front_y:front_y+front_h, x:x+w]
-            regions.append((front_plate, (x, front_y, w, front_h)))
-        
-        # Rear plate region (top 20% of vehicle)
-        rear_h = int(h * 0.2)
-        if y + rear_h <= frame.shape[0]:
-            rear_plate = frame[y:y+rear_h, x:x+w]
-            regions.append((rear_plate, (x, y, w, rear_h)))
+        if class_id == 1:  # bicycle - front and rear plates
+            # Front plate region (top 15% of bicycle)
+            front_h = int(h * 0.15)
+            if y + front_h <= frame.shape[0]:
+                front_plate = frame[y:y+front_h, x:x+w]
+                regions.append((front_plate, (x, y, w, front_h)))
+            
+            # Rear plate region (bottom 15% of bicycle)
+            rear_y = y + int(h * 0.85)
+            rear_h = int(h * 0.15)
+            if rear_y + rear_h <= frame.shape[0]:
+                rear_plate = frame[rear_y:rear_y+rear_h, x:x+w]
+                regions.append((rear_plate, (x, rear_y, w, rear_h)))
+                
+        elif class_id == 3:  # motorcycle - front and rear plates
+            # Front plate region (top 25% of motorcycle)
+            front_h = int(h * 0.25)
+            if y + front_h <= frame.shape[0]:
+                front_plate = frame[y:y+front_h, x:x+w]
+                regions.append((front_plate, (x, y, w, front_h)))
+            
+            # Rear plate region (bottom 25% of motorcycle)
+            rear_y = y + int(h * 0.75)
+            rear_h = int(h * 0.25)
+            if rear_y + rear_h <= frame.shape[0]:
+                rear_plate = frame[rear_y:rear_y+rear_h, x:x+w]
+                regions.append((rear_plate, (x, rear_y, w, rear_h)))
+                
+        else:  # car, bus, truck - front and rear plates
+            # Front plate region (bottom 20% of vehicle)
+            front_y = y + int(h * 0.8)
+            front_h = int(h * 0.2)
+            if front_y + front_h <= frame.shape[0]:
+                front_plate = frame[front_y:front_y+front_h, x:x+w]
+                regions.append((front_plate, (x, front_y, w, front_h)))
+            
+            # Rear plate region (top 20% of vehicle)
+            rear_h = int(h * 0.2)
+            if y + rear_h <= frame.shape[0]:
+                rear_plate = frame[y:y+rear_h, x:x+w]
+                regions.append((rear_plate, (x, y, w, rear_h)))
         
         return regions
         
@@ -389,22 +418,129 @@ class WorkingALPRSystem:
         return result
     
     def read_plate_text(self, plate_image):
-        """YOLO OCR with fallback pipeline."""
+        """Multi-OCR pipeline with Indian plate validation and consensus."""
         if plate_image is None or plate_image.size == 0:
             return "EMPTY", 0.0
         
-        # Method 1: YOLO OCR (PRIMARY - 96.5% accuracy, 80ms)
+        # Run multiple OCR methods
+        ocr_results = []
+        
+        # Method 1: YOLO OCR (PRIMARY)
         if YOLO_OCR_AVAILABLE:
             try:
                 text, confidence = read_plate(plate_image)
                 if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR"] and len(text) >= 5:
-                    print(f"🎯 YOLO-OCR: {text} ({confidence:.0f}%)")
-                    return text, confidence
+                    ocr_results.append({
+                        'method': 'YOLO-OCR',
+                        'text': text,
+                        'confidence': confidence,
+                        'priority': 1
+                    })
             except Exception as e:
                 print(f"YOLO OCR error: {e}")
         
-        # Fallback methods
-        return self.fallback_ocr_methods(plate_image)
+        # Method 2: PaddleOCR
+        if self.paddle_ocr:
+            try:
+                paddle_text, paddle_conf = self.read_with_paddleocr_enhanced(plate_image)
+                if paddle_text and len(paddle_text) >= 5:
+                    ocr_results.append({
+                        'method': 'PaddleOCR',
+                        'text': paddle_text,
+                        'confidence': paddle_conf,
+                        'priority': 2
+                    })
+            except Exception as e:
+                print(f"PaddleOCR error: {e}")
+        
+        # Method 3: EasyOCR
+        if self.easyocr_reader:
+            try:
+                easy_text, easy_conf = self.read_with_easyocr(plate_image)
+                if easy_text and len(easy_text) >= 5:
+                    ocr_results.append({
+                        'method': 'EasyOCR',
+                        'text': easy_text,
+                        'confidence': easy_conf,
+                        'priority': 3
+                    })
+            except Exception as e:
+                print(f"EasyOCR error: {e}")
+        
+        # Analyze and select best result
+        return self.select_best_plate_result(ocr_results)
+    
+    def select_best_plate_result(self, ocr_results):
+        """Select best OCR result using Indian plate validation and consensus."""
+        if not ocr_results:
+            return "NO-OCR", 0.0
+        
+        from indian_plate_validator import validate_indian_plate
+        
+        # Validate each result
+        validated_results = []
+        for result in ocr_results:
+            validation = validate_indian_plate(result['text'])
+            result['validation'] = validation
+            result['is_valid_indian'] = validation['valid']
+            
+            # Boost confidence for valid Indian plates
+            if validation['valid']:
+                result['final_confidence'] = min(result['confidence'] + 15, 99.0)
+                result['plate_info'] = validation
+            else:
+                result['final_confidence'] = result['confidence']
+            
+            validated_results.append(result)
+        
+        # Sort by: 1) Valid Indian format, 2) Final confidence, 3) Priority
+        validated_results.sort(key=lambda x: (
+            x['is_valid_indian'],
+            x['final_confidence'],
+            -x['priority']  # Lower priority number = higher priority
+        ), reverse=True)
+        
+        best_result = validated_results[0]
+        
+        # Check for consensus among top results
+        consensus_text = self.check_consensus(validated_results[:3])
+        if consensus_text:
+            best_result['text'] = consensus_text
+            best_result['consensus'] = True
+        
+        print(f"🎯 {best_result['method']}: {best_result['text']} ({best_result['final_confidence']:.0f}%) {'✅ Valid Indian' if best_result['is_valid_indian'] else '⚠️ Invalid format'}")
+        
+        return best_result['text'], best_result['final_confidence']
+    
+    def check_consensus(self, results):
+        """Check for character-level consensus among OCR results."""
+        if len(results) < 2:
+            return None
+        
+        texts = [r['text'] for r in results]
+        max_len = max(len(t) for t in texts)
+        
+        consensus = ""
+        for i in range(max_len):
+            chars = []
+            for text in texts:
+                if i < len(text):
+                    chars.append(text[i])
+            
+            if chars:
+                # Use most common character at this position
+                char_count = {}
+                for char in chars:
+                    char_count[char] = char_count.get(char, 0) + 1
+                
+                most_common = max(char_count.items(), key=lambda x: x[1])
+                if most_common[1] >= 2:  # At least 2 OCR methods agree
+                    consensus += most_common[0]
+                else:
+                    # Use highest confidence result's character
+                    consensus += results[0]['text'][i] if i < len(results[0]['text']) else ''
+        
+        return consensus if len(consensus) >= 6 else None
     
     def fallback_ocr_methods(self, plate_image):
         """Fallback OCR methods when YOLO fails."""
@@ -616,34 +752,28 @@ class WorkingALPRSystem:
         return results
         
     def save_vehicle_event(self, plate_results, event_type="entry"):
-        """Save vehicle event to database."""
+        """Save vehicle event with Indian plate validation to database."""
         if not self.tracker or not plate_results:
             return
             
         # Use best plate result
         best_plate = max(plate_results, key=lambda x: x['confidence'])
         
+        # Validate Indian plate format
+        from indian_plate_validator import validate_indian_plate
+        plate_validation = validate_indian_plate(best_plate['text'])
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Generate random vehicle details for simulation
+        # Generate vehicle details
         import random
         vehicle_colors = ["Red", "Blue", "Green", "Black", "White", "Silver", "Gray", "Yellow"]
-        vehicle_makes = ["Toyota", "Honda", "Ford", "BMW", "Audi", "Mercedes", "Chevrolet", "Nissan"]
-        vehicle_models = ["Camry", "Civic", "Focus", "X3", "A4", "C-Class", "Malibu", "Altima"]
-        
-        # Simulate dual-camera capture based on entry/exit logic
-        if event_type == "entry":
-            # Entry: Camera 1 captures front, Camera 2 captures rear
-            front_plate = best_plate['text']
-            rear_plate = best_plate['text']  # Same vehicle, both plates should match
-        else:
-            # Exit: Camera 2 captures rear first, Camera 1 captures front
-            front_plate = best_plate['text']
-            rear_plate = best_plate['text']
+        vehicle_makes = ["Toyota", "Honda", "Ford", "BMW", "Audi", "Mercedes", "Maruti", "Hyundai"]
+        vehicle_models = ["Swift", "City", "Creta", "Innova", "Verna", "Baleno", "Dzire", "Seltos"]
         
         event_data = {
-            "front_plate_number": front_plate,
-            "rear_plate_number": rear_plate,
+            "front_plate_number": best_plate['text'],
+            "rear_plate_number": best_plate['text'],
             "front_plate_confidence": best_plate['confidence'],
             "rear_plate_confidence": best_plate['confidence'],
             "front_plate_image_path": best_plate['image_path'],
@@ -655,28 +785,53 @@ class WorkingALPRSystem:
             "detection_method": best_plate['method'],
             "camera_sequence": "Camera1->Camera2" if event_type == "entry" else "Camera2->Camera1",
             "is_processed": False,
-            "created_at": datetime.now(timezone.utc)
+            "created_at": datetime.now(timezone.utc),
+            
+            # Indian plate validation data
+            "plate_validation": plate_validation,
+            "is_valid_indian_plate": plate_validation['valid'],
+            "plate_type": plate_validation.get('type', 'unknown'),
+            "plate_format": plate_validation.get('format', 'Unknown'),
+            "state_info": {
+                "code": plate_validation.get('state_code', ''),
+                "name": plate_validation.get('state_name', ''),
+                "rto_code": plate_validation.get('rto_code', '')
+            } if plate_validation.get('state_code') else {},
+            "vehicle_category": plate_validation.get('vehicle_category', 'Unknown'),
+            "registration_details": {
+                "series": plate_validation.get('series', ''),
+                "number": plate_validation.get('number', ''),
+                "year": plate_validation.get('registration_year', '')
+            }
         }
         
-        # Extract plate information
-        plate_info = self.extract_plate_info(best_plate['text'])
-        event_data.update({
-            'plate_info': plate_info,
-            'is_indian_format': plate_info['valid'],
-            'plate_type': plate_info.get('type', 'unknown')
-        })
+        # Add special handling for different plate types
+        if plate_validation.get('type') == 'bharat':
+            event_data['is_bharat_series'] = True
+            event_data['pan_india_valid'] = True
+        elif plate_validation.get('type') == 'vintage':
+            event_data['is_vintage'] = True
+            event_data['age_category'] = '50+ years'
         
-        # Save to appropriate collection
-        if event_type == "entry":
-            result = self.tracker.db.entry_events.insert_one(event_data)
-            plate_type = plate_info.get('type', 'unknown')
-            print(f"✅ Entry saved: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type}")
-        else:
-            result = self.tracker.db.exit_events.insert_one(event_data)
-            plate_type = plate_info.get('type', 'unknown')
-            print(f"✅ Exit saved: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type}")
-            
-        return result
+        # Save to database
+        try:
+            if event_type == "entry":
+                result = self.tracker.db.entry_events.insert_one(event_data)
+                status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
+                plate_type = plate_validation.get('type', 'unknown')
+                state_name = plate_validation.get('state_name', 'Unknown')
+                print(f"{status} Entry: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
+            else:
+                result = self.tracker.db.exit_events.insert_one(event_data)
+                status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
+                plate_type = plate_validation.get('type', 'unknown')
+                state_name = plate_validation.get('state_name', 'Unknown')
+                print(f"{status} Exit: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
+                
+            return result
+        except Exception as e:
+            print(f"❌ Database save error: {e}")
+            return None
         
     def run(self):
         """Main processing loop."""
