@@ -148,6 +148,16 @@ assets/models/*/
 !assets/models/README.md
 !assets/models.tensorrt/README.md
 
+# AI Models directory
+models/
+*.pt
+*.pth
+*.onnx
+*.pb
+*.h5
+*.tflite
+*.engine
+
 # Log files
 *.log
 
