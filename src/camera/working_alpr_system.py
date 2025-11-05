@@ -392,8 +392,8 @@ class WorkingALPRSystem:
         # Multi-model OCR pipeline (hierarchical by accuracy)
         ocr_methods = [
             ("EasyOCR", self.read_with_easyocr, 98.0),
-            ("PaddleOCR", self.read_with_paddleocr, 95.0),
-            ("Tesseract", self.read_with_tesseract, 85.0)
+            ("PaddleOCR", self.read_with_paddleocr_enhanced, 95.0),
+            ("Tesseract", self.read_with_tesseract_enhanced, 85.0)
         ]
         
         best_text = ""
@@ -402,12 +402,7 @@ class WorkingALPRSystem:
         
         for method_name, method_func, expected_accuracy in ocr_methods:
             try:
-                if method_name == "PaddleOCR":
-                    text, confidence = self.read_with_paddleocr_enhanced(enhanced_image)
-                elif method_name == "Tesseract":
-                    text, confidence = self.read_with_tesseract_enhanced(enhanced_image)
-                else:
-                    text, confidence = method_func(enhanced_image)
+                text, confidence = method_func(enhanced_image)
                 
                 # Validate Indian license plate format
                 if self.validate_plate_format(text):
