@@ -212,16 +212,41 @@ def process_frame_with_alpr(frame, camera_id):
         # Save to database if we have valid results and cooldown period has passed
         if plate_results:
             # Filter for high confidence results (100% accuracy requirement)
-            valid_results = [r for r in plate_results if r['confidence'] > 85 and len(r['text']) >= 5]
+            valid_results = [r for r in plate_results if r['confidence'] > 70 and len(r['text']) >= 5]
             
             if valid_results:
                 current_time = time.time()
-                if current_time - last_detection_time.get(camera_id, 0) > 1:
+                if current_time - last_detection_time.get(camera_id, 0) > 3:
                     last_detection_time[camera_id] = current_time
                     # Save vehicle event to database automatically
                     event_type = "entry" if camera_id == 0 else "exit"
-                    alpr_system.save_vehicle_event(valid_results, event_type)
-                    print(f"🎯 Auto ALPR Detection - Camera {camera_id+1}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%)")
+                    try:
+                        alpr_system.save_vehicle_event(valid_results, event_type)
+                        print(f"🎯 Auto ALPR Detection - Camera {camera_id+1}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%) - SAVED TO DB")
+                    except Exception as e:
+                        print(f"❌ Failed to save to DB: {e}")
+                        # Try manual database save
+                        try:
+                            db = get_db()
+                            if db:
+                                plate_text = valid_results[0]['text']
+                                entry_event = {
+                                    "front_plate_number": plate_text,
+                                    "rear_plate_number": plate_text,
+                                    "front_plate_confidence": valid_results[0]['confidence'],
+                                    "rear_plate_confidence": valid_results[0]['confidence'],
+                                    "entry_timestamp" if event_type == "entry" else "exit_timestamp": datetime.now(timezone.utc),
+                                    "vehicle_color": "Unknown",
+                                    "vehicle_make": "Unknown",
+                                    "vehicle_model": "Unknown",
+                                    "is_processed": False,
+                                    "created_at": datetime.now(timezone.utc)
+                                }
+                                collection = db.entry_events if event_type == "entry" else db.exit_events
+                                collection.insert_one(entry_event)
+                                print(f"✅ Manual DB save successful: {plate_text}")
+                        except Exception as e2:
+                            print(f"❌ Manual DB save failed: {e2}")
         
         return frame
     except Exception as e:
@@ -303,10 +328,46 @@ def api_stats():
         recent_entry_events = get_recent_entry_events(db)
         recent_exit_events = get_recent_exit_events(db)
         
-        # Format journeys for JSON
+        # Combine entry and exit events for recent activity
+        recent_activity = []
+        
+        # Add entry events
+        for event in recent_entry_events:
+            entry_time = event.get('entry_timestamp')
+            recent_activity.append({
+                'front_plate_number': event.get('front_plate_number', 'Unknown'),
+                'rear_plate_number': event.get('rear_plate_number', 'Unknown'),
+                'entry_timestamp': entry_time.isoformat() if entry_time else None,
+                'exit_timestamp': None,
+                'is_employee': False,  # Check employee status
+                'vehicle_make': event.get('vehicle_make', 'Unknown'),
+                'vehicle_model': event.get('vehicle_model', 'Unknown'),
+                'vehicle_color': event.get('vehicle_color', 'Unknown')
+            })
+        
+        # Add completed journeys
+        for journey in recent_journeys:
+            entry_time = journey.get('entry_timestamp')
+            exit_time = journey.get('exit_timestamp')
+            
+            recent_activity.append({
+                'front_plate_number': journey.get('front_plate_number', 'Unknown'),
+                'rear_plate_number': journey.get('rear_plate_number', 'Unknown'),
+                'entry_timestamp': entry_time.isoformat() if entry_time else None,
+                'exit_timestamp': exit_time.isoformat() if exit_time else None,
+                'is_employee': journey.get('is_employee', False),
+                'vehicle_make': journey.get('vehicle_make', 'Unknown'),
+                'vehicle_model': journey.get('vehicle_model', 'Unknown'),
+                'vehicle_color': journey.get('vehicle_color', 'Unknown')
+            })
+        
+        # Sort by entry time (most recent first)
+        recent_activity.sort(key=lambda x: x.get('entry_timestamp', ''), reverse=True)
+        recent_activity = recent_activity[:10]  # Limit to 10 most recent
+        
+        # Format journeys for backward compatibility
         formatted_journeys = []
-        for journey in recent_journeys:  # First 10
-            # Format timestamps properly
+        for journey in recent_journeys:
             entry_time = journey.get('entry_timestamp')
             exit_time = journey.get('exit_timestamp')
             
@@ -356,11 +417,15 @@ def api_stats():
         
         return jsonify({
             'success': True,
+            'entry_events': stats.get('total_entry_events', 0),
+            'exit_events': stats.get('total_exit_events', 0),
+            'vehicle_journeys': stats.get('total_journeys', 0),
+            'employee_vehicles': stats.get('employee_vehicles', 0),
+            'recent_activity': recent_activity,
             'stats': stats,
             'recent_journeys': formatted_journeys,
             'recent_entry_events': formatted_entry_events,
-            'recent_exit_events': formatted_exit_events,
-            'employee_vehicles': formatted_employees
+            'recent_exit_events': formatted_exit_events
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -699,15 +764,8 @@ def create_main_dashboard_template():
                                         <th>Employee Vehicle</th>
                                     </tr>
                                 </thead>
-                                <tbody id="vehicle-records-table">
-                                    <tr>
-                                        <td colspan="5" class="text-center py-3">
-                                            <div class="spinner-border text-primary" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                            <p class="mt-2 mb-0">Loading vehicle records...</p>
-                                        </td>
-                                    </tr>
+                                <tbody id="vehicle-records">
+                                    <!-- Vehicle records will be populated here -->
                                 </tbody>
                             </table>
                         </div>
@@ -719,83 +777,52 @@ def create_main_dashboard_template():
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Update current time
         function updateTime() {
             const now = new Date();
-            document.getElementById('current-time').textContent = now.toLocaleString();
+            document.getElementById('current-time').textContent = now.toLocaleTimeString();
         }
-        updateTime();
-        setInterval(updateTime, 1000);
 
-        // Fetch data from API
-        async function fetchData() {
-            try {
-                // Show loading state for table
-                document.getElementById('vehicle-records-table').innerHTML = `
-                    <tr>
-                        <td colspan="5" class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mt-2 mb-0">Loading vehicle records...</p>
-                        </td>
-                    </tr>
-                `;
-
-                // Fetch stats
-                const statsResponse = await fetch('/api/stats');
-                const statsData = await statsResponse.json();
-                
-                if (statsData.success) {
-                    // Update statistics
-                    document.getElementById('entry-count').textContent = statsData.stats.total_entry_events;
-                    document.getElementById('exit-count').textContent = statsData.stats.total_exit_events;
-                    document.getElementById('journey-count').textContent = statsData.stats.total_journeys;
-                    document.getElementById('employee-count').textContent = statsData.stats.employee_vehicles;
-
+        function loadStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('entry-count').textContent = data.entry_events || 0;
+                    document.getElementById('exit-count').textContent = data.exit_events || 0;
+                    document.getElementById('journey-count').textContent = data.vehicle_journeys || 0;
+                    document.getElementById('employee-count').textContent = data.employee_vehicles || 0;
+                    
                     // Update vehicle records table
-                    let tableHtml = '';
-                    if (statsData.recent_journeys && statsData.recent_journeys.length > 0) {
-                        statsData.recent_journeys.forEach(journey => {
-                            const entryTime = journey.entry_time ? new Date(journey.entry_time).toLocaleString() : '-';
-                            const exitTime = journey.exit_time ? new Date(journey.exit_time).toLocaleString() : '-';
-                            const isEmployee = journey.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>';
-                            
-                            tableHtml += `
-                                <tr>
-                                    <td>${journey.front_plate || journey.plate || '-'}</td>
-                                    <td>${journey.rear_plate || journey.plate || '-'}</td>
-                                    <td>${entryTime}</td>
-                                    <td>${exitTime}</td>
-                                    <td>${isEmployee}</td>
-                                </tr>
+                    const tbody = document.getElementById('vehicle-records');
+                    tbody.innerHTML = '';
+                    
+                    if (data.recent_activity && data.recent_activity.length > 0) {
+                        data.recent_activity.forEach(record => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${record.front_plate_number || 'N/A'}</td>
+                                <td>${record.rear_plate_number || 'N/A'}</td>
+                                <td>${record.entry_timestamp ? new Date(record.entry_timestamp).toLocaleString() : 'N/A'}</td>
+                                <td>${record.exit_timestamp ? new Date(record.exit_timestamp).toLocaleString() : 'Pending'}</td>
+                                <td>${record.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
                             `;
+                            tbody.appendChild(row);
                         });
                     } else {
-                        tableHtml = '<tr><td colspan="5" class="text-center py-3 text-muted">No vehicle records found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No vehicle records found</td></tr>';
                     }
-                    document.getElementById('vehicle-records-table').innerHTML = tableHtml;
-                }
-            } catch (error) {
-                console.error('Error fetching data:', error);
-                document.getElementById('vehicle-records-table').innerHTML = '<tr><td colspan="5" class="text-center py-3 text-danger">Error loading data</td></tr>';
-            }
+                })
+                .catch(error => {
+                    console.error('Error loading stats:', error);
+                });
         }
 
-        // Initial data load
-        document.addEventListener('DOMContentLoaded', function() {
-            fetchData();
-        });
+        // Update time every second
+        setInterval(updateTime, 1000);
+        updateTime();
 
-        // Auto-refresh every 5 seconds for real-time updates
-        setInterval(fetchData, 5000);
-        
-        // Refresh camera feeds every 30 seconds to prevent caching
-        setInterval(function() {
-            const timestamp = new Date().getTime();
-            document.getElementById('camera1-feed').src = '/camera1_feed?' + timestamp;
-            document.getElementById('camera2-feed').src = '/camera2_feed?' + timestamp;
-        }, 30000);
+        // Load stats every 5 seconds
+        setInterval(loadStats, 5000);
+        loadStats();
     </script>
 </body>
 </html>'''
