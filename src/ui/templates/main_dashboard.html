@@ -166,14 +166,15 @@
         <div class="row mt-4">
             <!-- Recent Activity -->
             <div class="col-lg-8">
-                <div class="card dashboard-card">
+                <!-- Recent Journeys -->
+                <div class="card dashboard-card mb-3">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
                             <i class="bi bi-clock-history me-2"></i>Recent Vehicle Journeys
                         </h5>
                     </div>
-                    <div class="card-body" id="journeys-container">
-                        <div class="text-center py-5">
+                    <div class="card-body" id="journeys-container" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-center py-3">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
@@ -182,10 +183,11 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Employee Vehicles & Database Info -->
+            
+            <!-- Entry and Exit Events Side by Side -->
             <div class="col-lg-4">
-                <div class="card dashboard-card mb-4">
+                <!-- Employee Vehicles -->
+                <div class="card dashboard-card mb-3">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
                             <i class="bi bi-people me-2"></i>Employee Vehicles
@@ -200,6 +202,7 @@
                     </div>
                 </div>
 
+                <!-- Database Information -->
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
                         <h5 class="mb-0">
@@ -216,7 +219,54 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Entry and Exit Events Row -->
+        <div class="row mt-4">
+            <div class="col-lg-6">
+                <!-- Recent Entry Events -->
+                <div class="card dashboard-card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-box-arrow-in-right text-success me-2"></i>Recent Entry Events
+                        </h5>
+                    </div>
+                    <div class="card-body" id="entry-events-container" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-success" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading entry events...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6">
+                <!-- Recent Exit Events -->
+                <div class="card dashboard-card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-box-arrow-right text-danger me-2"></i>Recent Exit Events
+                        </h5>
+                    </div>
+                    <div class="card-body" id="exit-events-container" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-danger" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading exit events...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </div>
+
+    <!-- Test ALPR Button -->
+    <button class="btn btn-warning btn-lg rounded-circle" id="test-alpr-btn" title="Test ALPR" style="position: fixed; bottom: 30px; right: 170px; z-index: 1000;">
+        <i class="bi bi-camera"></i>
+    </button>
 
     <!-- Simulate Vehicle Button -->
     <button class="btn btn-success btn-lg rounded-circle simulate-btn" id="simulate-btn" title="Simulate Vehicle">
@@ -243,11 +293,29 @@
             try {
                 // Show loading states
                 document.getElementById('journeys-container').innerHTML = `
-                    <div class="text-center py-5">
+                    <div class="text-center py-3">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                         <p class="mt-2">Loading recent journeys...</p>
+                    </div>
+                `;
+                
+                document.getElementById('entry-events-container').innerHTML = `
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading entry events...</p>
+                    </div>
+                `;
+                
+                document.getElementById('exit-events-container').innerHTML = `
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-danger" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading exit events...</p>
                     </div>
                 `;
                 
@@ -310,6 +378,64 @@
                     }
                     document.getElementById('journeys-container').innerHTML = journeysHtml;
 
+                    // Update entry events
+                    let entryEventsHtml = '';
+                    if (statsData.recent_entry_events && statsData.recent_entry_events.length > 0) {
+                        statsData.recent_entry_events.forEach(event => {
+                            const entryTime = new Date(event.entry_time);
+                            const now = new Date();
+                            const diffMinutes = Math.floor((now - entryTime) / (1000 * 60));
+                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
+                            
+                            entryEventsHtml += `
+                                <div class="journey-item" style="border-left-color: #198754;">
+                                    <div class="d-flex justify-content-between">
+                                        <h6 class="mb-1">
+                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
+                                        </h6>
+                                        <small class="text-muted">${timeAgo}</small>
+                                    </div>
+                                    <p class="mb-1 text-muted">
+                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
+                                    </p>
+                                    <small class="text-muted">${entryTime.toLocaleTimeString()}</small>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        entryEventsHtml = '<p class="text-muted text-center py-3">No recent entry events</p>';
+                    }
+                    document.getElementById('entry-events-container').innerHTML = entryEventsHtml;
+
+                    // Update exit events
+                    let exitEventsHtml = '';
+                    if (statsData.recent_exit_events && statsData.recent_exit_events.length > 0) {
+                        statsData.recent_exit_events.forEach(event => {
+                            const exitTime = new Date(event.exit_time);
+                            const now = new Date();
+                            const diffMinutes = Math.floor((now - exitTime) / (1000 * 60));
+                            const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.floor(diffMinutes/60)}h ago`;
+                            
+                            exitEventsHtml += `
+                                <div class="journey-item" style="border-left-color: #dc3545;">
+                                    <div class="d-flex justify-content-between">
+                                        <h6 class="mb-1">
+                                            <i class="bi bi-car-front me-2"></i>${event.plate || 'Unknown'}
+                                        </h6>
+                                        <small class="text-muted">${timeAgo}</small>
+                                    </div>
+                                    <p class="mb-1 text-muted">
+                                        ${event.vehicle_make || 'Unknown'} ${event.vehicle_model || 'Unknown'} - ${event.vehicle_color || 'Unknown'}
+                                    </p>
+                                    <small class="text-muted">${exitTime.toLocaleTimeString()}</small>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        exitEventsHtml = '<p class="text-muted text-center py-3">No recent exit events</p>';
+                    }
+                    document.getElementById('exit-events-container').innerHTML = exitEventsHtml;
+
                     // Update employees
                     let employeesHtml = '';
                     if (statsData.employee_vehicles.length > 0) {
@@ -359,6 +485,8 @@
             } catch (error) {
                 console.error('Error fetching data:', error);
                 document.getElementById('journeys-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
+                document.getElementById('entry-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
+                document.getElementById('exit-events-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
                 document.getElementById('employees-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
                 document.getElementById('database-container').innerHTML = '<p class="text-danger text-center py-3">Error loading data</p>';
             }
@@ -426,6 +554,35 @@
                     btn.classList.remove('btn-secondary');
                 }, 500);
             });
+        });
+
+        // Test ALPR button
+        document.getElementById('test-alpr-btn').addEventListener('click', async function() {
+            try {
+                const response = await fetch('/api/test_alpr');
+                const data = await response.json();
+                
+                const alertDiv = document.createElement('div');
+                alertDiv.className = data.success ? 'alert alert-info alert-dismissible fade show position-fixed' : 'alert alert-danger alert-dismissible fade show position-fixed';
+                alertDiv.style.bottom = '20px';
+                alertDiv.style.left = '20px';
+                alertDiv.style.zIndex = '9999';
+                alertDiv.style.maxWidth = '400px';
+                alertDiv.innerHTML = `
+                    <i class="bi bi-camera me-2"></i>
+                    <strong>ALPR Test:</strong> ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.body.appendChild(alertDiv);
+                
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.parentNode.removeChild(alertDiv);
+                    }
+                }, 5000);
+            } catch (error) {
+                console.error('Error testing ALPR:', error);
+            }
         });
 
         // Simulate vehicle button
