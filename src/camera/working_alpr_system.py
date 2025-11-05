@@ -53,14 +53,7 @@ except ImportError:
 
 
 
-# LP-GAN import
-try:
-    sys.path.append('models')
-    from lpgan_wrapper import get_lpgan
-    LPGAN_AVAILABLE = True
-except ImportError:
-    LPGAN_AVAILABLE = False
-    print("⚠️  LP-GAN not available")
+
 
 try:
     from ultralytics import YOLO
@@ -110,7 +103,6 @@ class WorkingALPRSystem:
         
         # Enhanced OCR models
         self.easyocr_reader = None
-        self.lpgan = None
         
         self.load_ai_models()
         self.load_plate_detector()
@@ -197,14 +189,7 @@ class WorkingALPRSystem:
             print(f"❌ Simple Plate OCR failed: {e}")
             self.simple_ocr = None
         
-        # Initialize LP-GAN
-        if LPGAN_AVAILABLE:
-            try:
-                self.lpgan = get_lpgan()
-                print("✅ LP-GAN initialized (Indian plate enhancement)")
-            except Exception as e:
-                print(f"❌ LP-GAN failed: {e}")
-                self.lpgan = None
+
         
         print("🎯 Enhanced OCR Pipeline Ready")
         
@@ -326,23 +311,14 @@ class WorkingALPRSystem:
         return plates
         
     def enhance_plate_image(self, plate_image):
-        """Apply LP-GAN + Deep LPR preprocessing for better accuracy."""
+        """Apply basic preprocessing for better accuracy."""
         try:
-            # Use LP-GAN enhancement if available
-            if self.lpgan:
-                try:
-                    enhanced = self.lpgan.enhance_plate_image(plate_image)
-                    return enhanced
-                except Exception as e:
-                    print(f"LP-GAN enhancement error: {e}")
-            
-            # Fallback to Deep LPR preprocessing
             if len(plate_image.shape) == 3:
                 gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
             else:
                 gray = plate_image.copy()
             
-            # Deep LPR preprocessing pipeline
+            # Basic preprocessing pipeline
             blurred = cv2.GaussianBlur(gray, (3, 3), 0)
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
             enhanced = clahe.apply(blurred)
