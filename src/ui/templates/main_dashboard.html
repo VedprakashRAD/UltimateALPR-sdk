@@ -134,11 +134,12 @@
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Camera 1 Plate</th>
-                                        <th>Camera 2 Plate</th>
-                                        <th>Entry Time</th>
-                                        <th>Exit Time</th>
-                                        <th>Employee Vehicle</th>
+                                        <th>License Plate</th>
+                                        <th>Camera</th>
+                                        <th>Event Type</th>
+                                        <th>Timestamp</th>
+                                        <th>Confidence</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="vehicle-records">
@@ -172,20 +173,57 @@
                     const tbody = document.getElementById('vehicle-records');
                     tbody.innerHTML = '';
                     
-                    if (data.recent_activity && data.recent_activity.length > 0) {
-                        data.recent_activity.forEach(record => {
+                    // Show both entry and exit events separately
+                    const allEvents = [];
+                    
+                    // Add entry events
+                    if (data.recent_entry_events) {
+                        data.recent_entry_events.forEach(event => {
+                            allEvents.push({
+                                plate: event.plate,
+                                camera: 'Camera 1 (Entry)',
+                                type: 'Entry',
+                                timestamp: event.entry_time,
+                                confidence: '85%', // Default confidence
+                                status: 'Processed'
+                            });
+                        });
+                    }
+                    
+                    // Add exit events  
+                    if (data.recent_exit_events) {
+                        data.recent_exit_events.forEach(event => {
+                            allEvents.push({
+                                plate: event.plate,
+                                camera: 'Camera 2 (Exit)',
+                                type: 'Exit',
+                                timestamp: event.exit_time,
+                                confidence: '85%', // Default confidence
+                                status: 'Processed'
+                            });
+                        });
+                    }
+                    
+                    // Sort by timestamp (most recent first)
+                    allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    
+                    if (allEvents.length > 0) {
+                        allEvents.slice(0, 10).forEach(event => {
                             const row = document.createElement('tr');
+                            const eventClass = event.type === 'Entry' ? 'table-success' : 'table-info';
+                            row.className = eventClass;
                             row.innerHTML = `
-                                <td>${record.front_plate_number || 'N/A'}</td>
-                                <td>${record.rear_plate_number || 'N/A'}</td>
-                                <td>${record.entry_timestamp ? new Date(record.entry_timestamp).toLocaleString() : 'N/A'}</td>
-                                <td>${record.exit_timestamp ? new Date(record.exit_timestamp).toLocaleString() : 'Pending'}</td>
-                                <td>${record.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+                                <td><strong>${event.plate}</strong></td>
+                                <td>${event.camera}</td>
+                                <td><span class="badge ${event.type === 'Entry' ? 'bg-success' : 'bg-info'}">${event.type}</span></td>
+                                <td>${new Date(event.timestamp).toLocaleString()}</td>
+                                <td>${event.confidence}</td>
+                                <td><span class="badge bg-primary">${event.status}</span></td>
                             `;
                             tbody.appendChild(row);
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No vehicle records found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No vehicle records found</td></tr>';
                     }
                 })
                 .catch(error => {

@@ -49,15 +49,17 @@ class IndianPlateValidator:
                 if result['valid']:
                     return result
         
-        # If no exact match, try relaxed validation for common variations
+        # If no exact match, try strict validation for Indian plates only
         if self.is_likely_indian_plate(plate):
+            state_code = plate[:2]
             return {
                 'valid': True,
                 'plate': plate,
                 'type': 'standard',
-                'format': 'Standard Indian format (relaxed)',
-                'state_name': 'Unknown',
-                'confidence': 'medium'
+                'format': 'Standard Indian format',
+                'state_name': self.all_codes.get(state_code, 'Unknown'),
+                'state_code': state_code,
+                'confidence': 'high'
             }
         
         return {'valid': False, 'reason': 'Invalid format', 'plate': plate}
@@ -121,27 +123,27 @@ class IndianPlateValidator:
         return result
     
     def is_likely_indian_plate(self, plate):
-        """Check if plate looks like Indian format even if not exact match."""
-        # Basic Indian plate characteristics
-        if len(plate) < 8 or len(plate) > 12:
+        """Check if plate looks like Indian format with strict validation."""
+        # Must be proper length
+        if len(plate) < 8 or len(plate) > 10:
             return False
         
-        # Should start with letters (state code)
-        if not plate[:2].isalpha():
+        # Must start with valid state code
+        state_code = plate[:2]
+        if state_code not in self.all_codes:
             return False
         
-        # Should have some digits
-        if not any(c.isdigit() for c in plate):
+        # Must follow basic Indian pattern: XX##XX####
+        if not re.match(r'^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$', plate):
             return False
         
-        # Common Indian patterns (relaxed)
-        relaxed_patterns = [
-            r'^[A-Z]{2}\d{2}[A-Z]{1,3}\d{3,4}$',  # Standard with variations
-            r'^\d{2}BH\d{4}[A-Z]{2}$',            # Bharat series
-            r'^[A-Z]{2}\d{1,3}[A-Z]{1,3}\d{3,4}$' # Variations in RTO codes
-        ]
+        # Additional checks for common invalid patterns
+        # Reject plates with too many consecutive same characters
+        for i in range(len(plate) - 2):
+            if plate[i] == plate[i+1] == plate[i+2]:
+                return False
         
-        return any(re.match(pattern, plate) for pattern in relaxed_patterns)
+        return True
     
     def get_format_description(self, plate_type):
         """Get format description."""
