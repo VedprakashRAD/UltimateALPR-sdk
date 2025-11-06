@@ -249,6 +249,151 @@ class MemoryOptimizedVehicleTracker:
             print(f"Error processing exit event: {e}")
             return None
             
+    def match_entry_exit_events_realtime(self, time_window_minutes: int = 60) -> List[Dict]:
+        """Real-time journey matching for immediate completion."""
+        matched_journeys = []
+        
+        try:
+            # Get recent unprocessed entry events (last hour)
+            recent_entries = list(self.db.entry_events.find({
+                "is_processed": False,
+                "entry_timestamp": {"$gte": datetime.utcnow() - timedelta(minutes=time_window_minutes)}
+            }).sort("entry_timestamp", -1).limit(10))
+            
+            for entry in recent_entries:
+                # Look for matching exit within time window
+                entry_time = entry["entry_timestamp"]
+                window_start = entry_time
+                window_end = entry_time + timedelta(minutes=time_window_minutes)
+                
+                # Find best matching exit
+                exit_events = list(self.db.exit_events.find({
+                    "is_processed": False,
+                    "exit_timestamp": {"$gte": window_start, "$lte": window_end}
+                }).sort("exit_timestamp", 1).limit(5))
+                
+                best_match = self._find_best_match_enhanced(entry, exit_events)
+                
+                if best_match:
+                    journey = self._create_journey_enhanced(entry, best_match)
+                    if journey:
+                        matched_journeys.append(journey)
+                        
+                        # Mark as processed
+                        self.db.entry_events.update_one(
+                            {"_id": entry["_id"]}, {"$set": {"is_processed": True}}
+                        )
+                        self.db.exit_events.update_one(
+                            {"_id": best_match["_id"]}, {"$set": {"is_processed": True}}
+                        )
+                        
+                        print(f"🎯 Journey completed: {entry.get('front_plate_number')} - {int((best_match['exit_timestamp'] - entry['entry_timestamp']).total_seconds() / 60)} minutes")
+        
+        except Exception as e:
+            print(f"Real-time matching error: {e}")
+        
+        return matched_journeys
+    
+    def _find_best_match_enhanced(self, entry_event: Dict, exit_events: List[Dict]) -> Optional[Dict]:
+        """Enhanced matching with vehicle attributes."""
+        if not exit_events:
+            return None
+        
+        entry_front = entry_event.get("front_plate_number")
+        entry_rear = entry_event.get("rear_plate_number")
+        entry_color = entry_event.get("vehicle_color")
+        entry_make = entry_event.get("vehicle_make")
+        
+        best_match = None
+        best_score = 0
+        
+        for exit_event in exit_events:
+            exit_front = exit_event.get("front_plate_number")
+            exit_rear = exit_event.get("rear_plate_number")
+            exit_color = exit_event.get("vehicle_color")
+            exit_make = exit_event.get("vehicle_make")
+            
+            score = 0
+            
+            # Plate matching (highest weight)
+            if self._plates_match(entry_front, exit_front):
+                score += 50
+            if self._plates_match(entry_rear, exit_rear):
+                score += 50
+            
+            # Vehicle attribute matching
+            if entry_color and exit_color and entry_color == exit_color:
+                score += 20
+            if entry_make and exit_make and entry_make == exit_make:
+                score += 15
+            
+            # Time proximity (closer = better)
+            time_diff = abs((exit_event["exit_timestamp"] - entry_event["entry_timestamp"]).total_seconds())
+            if time_diff < 1800:  # Within 30 minutes
+                score += max(0, 15 - int(time_diff / 120))  # Decrease score with time
+            
+            if score > best_score and score >= 70:  # Minimum threshold
+                best_score = score
+                best_match = exit_event
+        
+        return best_match
+    
+    def _create_journey_enhanced(self, entry_event: Dict, exit_event: Dict) -> Optional[Dict]:
+        """Create enhanced journey with anomaly detection."""
+        try:
+            entry_time = entry_event["entry_timestamp"]
+            exit_time = exit_event["exit_timestamp"]
+            duration = (exit_time - entry_time).total_seconds()
+            
+            # Detect journey anomalies
+            anomalies = []
+            if duration < 60:  # Less than 1 minute
+                anomalies.append("too_short")
+            if duration > 28800:  # More than 8 hours
+                anomalies.append("too_long")
+            
+            # Check for plate mismatches
+            if not self._plates_match(entry_event.get("front_plate_number"), exit_event.get("front_plate_number")):
+                anomalies.append("front_plate_mismatch")
+            if not self._plates_match(entry_event.get("rear_plate_number"), exit_event.get("rear_plate_number")):
+                anomalies.append("rear_plate_mismatch")
+            
+            journey = {
+                "entry_event_id": entry_event["_id"],
+                "exit_event_id": exit_event["_id"],
+                "front_plate_number": entry_event.get("front_plate_number"),
+                "rear_plate_number": entry_event.get("rear_plate_number"),
+                "entry_timestamp": entry_time,
+                "exit_timestamp": exit_time,
+                "duration_seconds": int(duration),
+                "duration_minutes": int(duration / 60),
+                "vehicle_color": entry_event.get("vehicle_color"),
+                "vehicle_make": entry_event.get("vehicle_make"),
+                "vehicle_model": entry_event.get("vehicle_model"),
+                "vehicle_size": entry_event.get("vehicle_size"),
+                "is_employee": entry_event.get("is_employee", False) or exit_event.get("is_employee", False),
+                "entry_anomalies": entry_event.get("anomalies", []),
+                "exit_anomalies": exit_event.get("anomalies", []),
+                "journey_anomalies": anomalies,
+                "flagged_for_review": len(anomalies) > 0 or entry_event.get("flagged_for_review", False) or exit_event.get("flagged_for_review", False),
+                "camera_sequences": {
+                    "entry": entry_event.get("camera_sequence", "Camera1->Camera2"),
+                    "exit": exit_event.get("camera_sequence", "Camera2->Camera1")
+                },
+                "created_at": datetime.utcnow(),
+                "_partition": "default"
+            }
+            
+            # Save journey
+            result = self.db.vehicle_journeys.insert_one(journey)
+            journey["_id"] = result.inserted_id
+            
+            return journey
+        
+        except Exception as e:
+            print(f"Enhanced journey creation error: {e}")
+            return None
+    
     def match_entry_exit_events(self, time_window_minutes: int = 30, batch_size: int = 10) -> List[Dict]:
         """
         Match entry and exit events with memory optimization.

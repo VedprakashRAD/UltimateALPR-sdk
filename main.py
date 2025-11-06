@@ -189,7 +189,7 @@ def initialize_alpr_systems():
         return False
 
 def process_frame_with_alpr(frame, camera_id):
-    """Process a frame with ALPR and return annotated frame."""
+    """Enhanced frame processing with dual-plate capture."""
     global alpr_system_camera1, alpr_system_camera2, last_detection_time
     
     # Select the appropriate ALPR system
@@ -199,120 +199,148 @@ def process_frame_with_alpr(frame, camera_id):
         return frame
     
     try:
-        # Process frame for license plates
-        plate_results = alpr_system.process_frame(frame.copy())
+        # Use enhanced dual-capture processing
+        dual_results = alpr_system.process_frame_dual_capture(frame.copy(), camera_id)
         
-        # Draw detections on frame
-        for result in plate_results:
-            x, y, w, h = result['bbox']
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame, f"{result['text']} ({result['confidence']:.0f}%)", 
-                       (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Save to database if we have valid results and cooldown period has passed
-        if plate_results:
-            # Filter for high confidence results with Indian plate validation
-            valid_results = []
-            for r in plate_results:
-                if r['confidence'] > 70 and len(r['text']) >= 6:  # Reduced threshold
-                    # Validate Indian license plate format
-                    from indian_plate_validator import validate_indian_plate
-                    validation = validate_indian_plate(r['text'])
-                    if validation['valid']:
-                        valid_results.append(r)
-                        state_info = validation.get('state_name', 'Unknown')
-                        format_info = validation.get('format', 'Standard')
-                        print(f"✅ Valid Indian Plate: {r['text']} ({r['confidence']:.0f}%) - {format_info} - {state_info}")
-                    else:
-                        print(f"⚠️ Invalid Plate: {r['text']} ({r['confidence']:.0f}%) - {validation.get('reason', 'Format mismatch')}")
-            
-            if valid_results:
-                current_time = time.time()
-                if current_time - last_detection_time.get(camera_id, 0) > 3:  # 3 second cooldown
-                    last_detection_time[camera_id] = current_time
-                    
-                    # Determine event type and camera info
-                    if camera_id == 0:
-                        event_type = "entry"
-                        camera_name = "Camera 1 (Entry)"
-                    else:
-                        event_type = "exit" 
-                        camera_name = "Camera 2 (Exit)"
-                    
-                    try:
-                        # Use ALPR system's save method
-                        alpr_system.save_vehicle_event(valid_results, event_type)
-                        print(f"🎯 {camera_name}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%) - SAVED TO DB")
-                    except Exception as e:
-                        print(f"❌ ALPR save failed: {e}")
-                        # Manual database save with proper structure
-                        try:
-                            db = get_db()
-                            if db:
-                                from datetime import timezone
-                                plate_text = valid_results[0]['text']
-                                
-                                # Create proper event structure
-                                if event_type == "entry":
-                                    event_data = {
-                                        "front_plate_number": plate_text,
-                                        "rear_plate_number": plate_text,
-                                        "front_plate_confidence": valid_results[0]['confidence'],
-                                        "rear_plate_confidence": valid_results[0]['confidence'],
-                                        "entry_timestamp": datetime.now(timezone.utc),
-                                        "camera_id": camera_id,
-                                        "camera_name": camera_name,
-                                        "vehicle_color": "Unknown",
-                                        "vehicle_make": "Unknown", 
-                                        "vehicle_model": "Unknown",
-                                        "is_processed": False,
-                                        "created_at": datetime.now(timezone.utc),
-                                        "_partition": "default"
-                                    }
-                                    db.entry_events.insert_one(event_data)
-                                else:
-                                    event_data = {
-                                        "front_plate_number": plate_text,
-                                        "rear_plate_number": plate_text,
-                                        "front_plate_confidence": valid_results[0]['confidence'],
-                                        "rear_plate_confidence": valid_results[0]['confidence'],
-                                        "exit_timestamp": datetime.now(timezone.utc),
-                                        "camera_id": camera_id,
-                                        "camera_name": camera_name,
-                                        "vehicle_color": "Unknown",
-                                        "vehicle_make": "Unknown",
-                                        "vehicle_model": "Unknown", 
-                                        "is_processed": False,
-                                        "created_at": datetime.now(timezone.utc),
-                                        "_partition": "default"
-                                    }
-                                    db.exit_events.insert_one(event_data)
-                                
-                                print(f"✅ Manual DB save: {plate_text} via {camera_name}")
-                        except Exception as e2:
-                            print(f"❌ Manual DB save failed: {e2}")
+        # Process dual results for vehicle events
+        if dual_results:
+            current_time = time.time()
+            if current_time - last_detection_time.get(camera_id, 0) > 5:  # 5 second cooldown
+                last_detection_time[camera_id] = current_time
+                
+                # Determine event type based on camera sequence
+                if camera_id == 0:
+                    event_type = "entry"
+                else:
+                    event_type = "exit"
+                
+                # Process vehicle events with enhanced logic
+                alpr_system.process_vehicle_event(dual_results, camera_id, event_type)
         
         return frame
     except Exception as e:
-        print(f"ALPR processing error for camera {camera_id}: {e}")
-        return frame
+        print(f"Enhanced ALPR processing error for camera {camera_id}: {e}")
+        # Fallback to legacy processing
+        try:
+            plate_results = alpr_system.process_frame(frame.copy())
+            
+            # Draw detections on frame
+            for result in plate_results:
+                x, y, w, h = result['bbox']
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(frame, f"{result['text']} ({result['confidence']:.0f}%)", 
+                           (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            return frame
+        except Exception as e2:
+            print(f"Fallback processing error: {e2}")
+            return frame
 
 def generate_camera_feed(camera_id):
     """Generate camera feed for streaming with ALPR processing."""
     global alpr_system_camera1, alpr_system_camera2
     
+    # For testing: if only one camera available, use camera 0 for both feeds
+    # but process them as different logical cameras
+    actual_camera_id = 0 if camera_id in [0, 1] else camera_id
+    
     # Try to open camera
-    cap = cv2.VideoCapture(camera_id)
+    cap = cv2.VideoCapture(actual_camera_id)
     if not cap.isOpened():
-        # If camera not available, create a test pattern
+        # If camera not available, create a test pattern with simulated license plates
         frame_count = 0
+        test_plates = ['MH01AB1234', 'KL31T3155', 'TN75AU9596', 'KA05NP3747', 'UP14AB1234']
+        
         while True:
-            # Create a test image with text
+            # Create a test image with text and simulated license plate
             img = np.zeros((480, 640, 3), dtype=np.uint8)
-            text = f"CAMERA {camera_id+1} - NO CAMERA"
-            cv2.putText(img, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 50), 
+            
+            # Camera info
+            camera_label = "CAMERA 1 - ENTRY" if camera_id == 0 else "CAMERA 2 - EXIT"
+            cv2.putText(img, camera_label, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(img, "SIMULATION MODE", (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+            
+            # Simulate license plate detection every 10 seconds
+            if frame_count % 300 == 0 and frame_count > 0:  # Every 10 seconds at 30fps
+                # Simulate a license plate detection
+                test_plate = test_plates[frame_count // 300 % len(test_plates)]
+                
+                # Create simulated detection result
+                simulated_result = {
+                    'text': test_plate,
+                    'confidence': 85.0,
+                    'bbox': [200, 200, 200, 100]
+                }
+                
+                # Process as if it's a real detection
+                if camera_id == 0:
+                    print(f"🎬 Simulated Camera 1 (Entry): {test_plate}")
+                else:
+                    print(f"🎬 Simulated Camera 2 (Exit): {test_plate}")
+                
+                # Validate and save to database
+                from indian_plate_validator import validate_indian_plate
+                validation = validate_indian_plate(test_plate)
+                if validation['valid']:
+                    try:
+                        db = get_db()
+                        if db:
+                            from datetime import timezone
+                            
+                            # Determine event type
+                            if camera_id == 0:
+                                event_type = "entry"
+                                camera_name = "Camera 1 (Entry)"
+                                event_data = {
+                                    "front_plate_number": test_plate,
+                                    "rear_plate_number": test_plate,
+                                    "front_plate_confidence": 85.0,
+                                    "rear_plate_confidence": 85.0,
+                                    "entry_timestamp": datetime.now(timezone.utc),
+                                    "camera_id": camera_id,
+                                    "camera_name": camera_name,
+                                    "vehicle_color": "Unknown",
+                                    "vehicle_make": "Unknown",
+                                    "vehicle_model": "Unknown",
+                                    "is_processed": False,
+                                    "created_at": datetime.now(timezone.utc),
+                                    "_partition": "default"
+                                }
+                                db.entry_events.insert_one(event_data)
+                            else:
+                                event_type = "exit"
+                                camera_name = "Camera 2 (Exit)"
+                                event_data = {
+                                    "front_plate_number": test_plate,
+                                    "rear_plate_number": test_plate,
+                                    "front_plate_confidence": 85.0,
+                                    "rear_plate_confidence": 85.0,
+                                    "exit_timestamp": datetime.now(timezone.utc),
+                                    "camera_id": camera_id,
+                                    "camera_name": camera_name,
+                                    "vehicle_color": "Unknown",
+                                    "vehicle_make": "Unknown",
+                                    "vehicle_model": "Unknown",
+                                    "is_processed": False,
+                                    "created_at": datetime.now(timezone.utc),
+                                    "_partition": "default"
+                                }
+                                db.exit_events.insert_one(event_data)
+                            
+                            print(f"✅ Simulated DB save: {test_plate} via {camera_name}")
+                    except Exception as e:
+                        print(f"❌ Simulated DB save failed: {e}")
+            
+            # Show simulated plate on screen
+            if frame_count % 300 < 150:  # Show for 5 seconds
+                current_plate = test_plates[(frame_count // 300) % len(test_plates)]
+                cv2.rectangle(img, (200, 200), (400, 300), (0, 255, 0), 2)
+                cv2.putText(img, current_plate, (210, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                cv2.putText(img, "85%", (210, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            frame_count += 1
             
             # Encode frame
             ret, buffer = cv2.imencode('.jpg', img)
