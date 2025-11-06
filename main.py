@@ -257,8 +257,8 @@ def generate_camera_feed(camera_id):
     """Generate camera feed for streaming with ALPR processing."""
     global alpr_system_camera1, alpr_system_camera2
     
-    # Try to open camera
-    cap = cv2.VideoCapture(camera_id)
+    # Always use front camera (index 0) for both feeds
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         # If camera not available, create a test pattern
         frame_count = 0
@@ -297,8 +297,14 @@ def generate_camera_feed(camera_id):
         # Add timestamp and camera info
         cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(frame, f"CAMERA {camera_id+1} - ALPR ACTIVE", (10, 60), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Different labels for each camera
+        if camera_id == 0:
+            cv2.putText(frame, "CAMERA 1 - ENTRY (ALPR ACTIVE)", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        else:
+            cv2.putText(frame, "CAMERA 2 - EXIT (ALPR ACTIVE)", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         # Encode frame
         ret, buffer = cv2.imencode('.jpg', frame)
@@ -308,6 +314,8 @@ def generate_camera_feed(camera_id):
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
         
         time.sleep(0.033)  # ~30 FPS
+
+# Removed simulated camera feed - both cameras now use the same physical camera
 
 # Flask routes
 @app.route('/')
@@ -862,9 +870,9 @@ def main():
     
     print()
     print("📱 Web Dashboard:")
-    print("   Access at: http://localhost:8088")
-    print("   Camera 1 Feed: http://localhost:8088/camera1_feed")
-    print("   Camera 2 Feed: http://localhost:8088/camera2_feed")
+    print("   Access at: http://localhost:8089")
+    print("   Camera 1 Feed: http://localhost:8089/camera1_feed")
+    print("   Camera 2 Feed: http://localhost:8089/camera2_feed")
     print()
     print("✨ New Features:")
     print("   - Click the car icon to simulate vehicle events")
@@ -877,7 +885,7 @@ def main():
     
     # Run the Flask app
     try:
-        app.run(host='0.0.0.0', port=8088, debug=False, use_reloader=False)
+        app.run(host='0.0.0.0', port=8089, debug=False, use_reloader=False)
     except KeyboardInterrupt:
         print("\n🛑 Stopping all services...")
         # Close database connection
