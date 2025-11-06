@@ -115,6 +115,27 @@
         </div>
 
         <div class="row mt-4">
+            <!-- OCR Comparison Results -->
+            <div class="col-12">
+                <div class="card dashboard-card mb-4">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-eye me-2"></i>OCR Comparison Results
+                        </h5>
+                    </div>
+                    <div class="card-body" id="ocr-container">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading OCR comparisons...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
             <!-- Recent Activity -->
             <div class="col-lg-8">
                 <div class="card dashboard-card">
@@ -212,6 +233,15 @@
                         </div>
                     </div>
                 `;
+                
+                document.getElementById('ocr-container').innerHTML = `
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading OCR comparisons...</p>
+                    </div>
+                `;
 
                 // Fetch stats
                 const statsResponse = await fetch('/api/stats');
@@ -302,6 +332,74 @@
                     `;
                     
                     document.getElementById('database-container').innerHTML = dbHtml;
+                }
+                
+                // Fetch OCR comparisons
+                const ocrResponse = await fetch('/api/ocr_comparisons');
+                const ocrData = await ocrResponse.json();
+                
+                if (ocrData.success) {
+                    let ocrHtml = '';
+                    
+                    // Method statistics
+                    if (ocrData.method_statistics && ocrData.method_statistics.length > 0) {
+                        ocrHtml += '<div class="row mb-3">';
+                        ocrData.method_statistics.forEach(stat => {
+                            const accuracy = stat.valid_plates ? ((stat.valid_plates / stat.total_detections) * 100).toFixed(1) : 0;
+                            ocrHtml += `
+                                <div class="col-md-4">
+                                    <div class="card border-0 bg-light">
+                                        <div class="card-body text-center">
+                                            <h6 class="card-title">${stat._id}</h6>
+                                            <p class="mb-1"><strong>Detections:</strong> ${stat.total_detections}</p>
+                                            <p class="mb-1"><strong>Avg Confidence:</strong> ${stat.avg_confidence.toFixed(1)}%</p>
+                                            <p class="mb-0"><strong>Accuracy:</strong> ${accuracy}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        ocrHtml += '</div>';
+                    }
+                    
+                    // Recent comparisons
+                    if (ocrData.recent_comparisons && ocrData.recent_comparisons.length > 0) {
+                        ocrHtml += '<h6 class="mb-3">Recent Comparisons:</h6>';
+                        ocrData.recent_comparisons.slice(0, 5).forEach(comp => {
+                            const timestamp = new Date(comp.timestamp);
+                            ocrHtml += `
+                                <div class="border rounded p-3 mb-3">
+                                    <div class="d-flex justify-content-between mb-2">
+                                        <strong>Winner: ${comp.winner.method} - ${comp.winner.text}</strong>
+                                        <small class="text-muted">${timestamp.toLocaleString()}</small>
+                                    </div>
+                                    <div class="row">
+                            `;
+                            
+                            comp.results.forEach(result => {
+                                const badgeClass = result.is_valid_indian ? 'bg-success' : 'bg-warning';
+                                const validText = result.is_valid_indian ? 'Valid' : 'Invalid';
+                                ocrHtml += `
+                                    <div class="col-md-4">
+                                        <div class="small">
+                                            <strong>${result.method}:</strong> ${result.text}<br>
+                                            <span class="badge ${badgeClass}">${validText}</span>
+                                            <span class="badge bg-secondary">${result.confidence.toFixed(0)}%</span>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                            
+                            ocrHtml += `
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        ocrHtml += '<p class="text-muted text-center py-3">No OCR comparisons available</p>';
+                    }
+                    
+                    document.getElementById('ocr-container').innerHTML = ocrHtml;
                 }
             } catch (error) {
                 console.error('Error fetching data:', error);

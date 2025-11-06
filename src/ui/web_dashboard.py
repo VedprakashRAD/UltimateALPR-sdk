@@ -110,6 +110,57 @@ def api_database():
             'error': str(e)
         })
 
+@app.route('/api/ocr_comparisons')
+def api_ocr_comparisons():
+    """API endpoint for recent OCR comparison results."""
+    try:
+        # Initialize the tracker
+        tracker = MemoryOptimizedVehicleTracker()
+        
+        # Get recent OCR comparisons (last 50)
+        comparisons = list(tracker.db.ocr_comparisons.find(
+            {}, 
+            {'_id': 0}
+        ).sort('timestamp', -1).limit(50))
+        
+        # Format for JSON serialization
+        formatted_comparisons = []
+        for comp in comparisons:
+            formatted_comp = {
+                'timestamp': comp.get('timestamp', datetime.min).isoformat(),
+                'ocr_methods': comp.get('ocr_methods', 0),
+                'results': comp.get('results', []),
+                'winner': comp.get('winner', {})
+            }
+            formatted_comparisons.append(formatted_comp)
+        
+        # Get OCR method statistics
+        pipeline = [
+            {'$unwind': '$results'},
+            {'$group': {
+                '_id': '$results.method',
+                'total_detections': {'$sum': 1},
+                'avg_confidence': {'$avg': '$results.confidence'},
+                'valid_plates': {'$sum': {'$cond': ['$results.is_valid_indian', 1, 0]}}
+            }}
+        ]
+        
+        method_stats = list(tracker.db.ocr_comparisons.aggregate(pipeline))
+        
+        # Close connection
+        tracker.close()
+        
+        return jsonify({
+            'success': True,
+            'recent_comparisons': formatted_comparisons,
+            'method_statistics': method_stats
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
 def main():
     """Main function to run the web dashboard."""
     print("🌐 Starting Web Dashboard for Vehicle Tracking System")
@@ -118,6 +169,7 @@ def main():
     print("✅ Flask web framework initialized")
     print()
     print("📱 Access the dashboard at: http://localhost:8080")
+    print("🔍 OCR Comparisons API: http://localhost:8080/api/ocr_comparisons")
     print("🔌 Press Ctrl+C to stop the server")
     print()
     

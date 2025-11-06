@@ -139,10 +139,31 @@ class WorkingALPRSystem:
                 
         if PADDLE_OCR_AVAILABLE:
             try:
-                self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en')
-                print("✅ PaddleOCR model loaded")
+                # Use local PaddleOCR models from models/paddle directory
+                base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models', 'paddle')
+                det_model_dir = os.path.join(base_dir, 'PP-OCRv3_mobile_det')
+                rec_model_dir = os.path.join(base_dir, 'en_PP-OCRv3_mobile_rec')
+                
+                if os.path.exists(det_model_dir) and os.path.exists(rec_model_dir):
+                    self.paddle_ocr = PaddleOCR(
+                        det_model_dir=det_model_dir,
+                        rec_model_dir=rec_model_dir,
+                        lang='en'
+                    )
+                    print(f"✅ PaddleOCR local models loaded:")
+                    print(f"   Detection: {det_model_dir}")
+                    print(f"   Recognition: {rec_model_dir}")
+                else:
+                    self.paddle_ocr = PaddleOCR(lang='en')
+                    print("✅ PaddleOCR model loaded (default)")
             except Exception as e:
                 print(f"❌ PaddleOCR loading failed: {e}")
+                # Fallback to default PaddleOCR
+                try:
+                    self.paddle_ocr = PaddleOCR(lang='en')
+                    print("✅ PaddleOCR fallback model loaded")
+                except:
+                    self.paddle_ocr = None
                 
     def load_deep_lpr_model(self):
         """Load Deep License Plate Recognition from cloned repository."""
@@ -412,12 +433,14 @@ class WorkingALPRSystem:
         return result
     
     def read_plate_text(self, plate_image):
-        """Multi-OCR pipeline with Indian plate validation and consensus."""
+        """Multi-OCR comparison with character-by-character analysis and database storage."""
         if plate_image is None or plate_image.size == 0:
             return "EMPTY", 0.0
         
         # Run multiple OCR methods
         ocr_results = []
+        
+        print("\n🔍 RUNNING MULTI-OCR COMPARISON:")
         
         # Method 1: YOLO OCR (PRIMARY)
         if YOLO_OCR_AVAILABLE:
@@ -430,6 +453,7 @@ class WorkingALPRSystem:
                         'confidence': confidence,
                         'priority': 1
                     })
+                    print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
             except Exception as e:
                 print(f"YOLO OCR error: {e}")
         
@@ -444,8 +468,9 @@ class WorkingALPRSystem:
                         'confidence': paddle_conf,
                         'priority': 2
                     })
+                    print(f"PaddleOCR:   {paddle_text} ({paddle_conf:.1f}%)")
             except Exception as e:
-                print(f"PaddleOCR error: {e}")
+                pass
         
         # Method 3: Tesseract (if available)
         if TESSERACT_AVAILABLE:
@@ -458,14 +483,15 @@ class WorkingALPRSystem:
                         'confidence': tesseract_conf,
                         'priority': 3
                     })
+                    print(f"Tesseract:   {tesseract_text} ({tesseract_conf:.1f}%)")
             except Exception as e:
                 print(f"Tesseract error: {e}")
         
-        # Analyze and select best result
-        return self.select_best_plate_result(ocr_results)
+        # Perform character-by-character comparison and validation
+        return self.analyze_ocr_results(ocr_results)
     
-    def select_best_plate_result(self, ocr_results):
-        """Select best OCR result using Indian plate validation and consensus."""
+    def analyze_ocr_results(self, ocr_results):
+        """Analyze OCR results with character comparison and validation."""
         if not ocr_results:
             return "NO-OCR", 0.0
         
@@ -487,54 +513,136 @@ class WorkingALPRSystem:
             
             validated_results.append(result)
         
+        # Perform character-by-character comparison
+        if len(validated_results) >= 2:
+            self.display_character_comparison(validated_results)
+        
         # Sort by: 1) Valid Indian format, 2) Final confidence, 3) Priority
         validated_results.sort(key=lambda x: (
             x['is_valid_indian'],
             x['final_confidence'],
-            -x['priority']  # Lower priority number = higher priority
+            -x['priority']
         ), reverse=True)
         
         best_result = validated_results[0]
         
-        # Check for consensus among top results
-        consensus_text = self.check_consensus(validated_results[:3])
+        # Check for consensus with higher confidence handling
+        consensus_text = self.get_consensus_with_confidence(validated_results)
         if consensus_text:
             best_result['text'] = consensus_text
             best_result['consensus'] = True
         
-        print(f"🎯 {best_result['method']}: {best_result['text']} ({best_result['final_confidence']:.0f}%) {'✅ Valid Indian' if best_result['is_valid_indian'] else '⚠️ Invalid format'}")
+        # Store comparison results in database
+        self.store_ocr_comparison(validated_results, best_result)
+        
+        print(f"\n🏆 WINNER: {best_result['method']} - {best_result['text']} ({best_result['final_confidence']:.0f}%) {'✅ Valid Indian' if best_result['is_valid_indian'] else '⚠️ Invalid format'}")
         
         return best_result['text'], best_result['final_confidence']
     
-    def check_consensus(self, results):
-        """Check for character-level consensus among OCR results."""
+    def display_character_comparison(self, results):
+        """Display character-by-character comparison of OCR results."""
+        if len(results) < 2:
+            return
+        
+        texts = [r['text'] for r in results]
+        methods = [r['method'] for r in results]
+        confidences = [r['confidence'] for r in results]
+        
+        max_len = max(len(t) for t in texts) if texts else 0
+        
+        print("\n📊 CHARACTER-BY-CHARACTER COMPARISON:")
+        
+        # Position header
+        print("Pos: ", end="")
+        for i in range(max_len):
+            print(f"{i:2d} ", end="")
+        print()
+        
+        # Display each OCR result
+        for i, (text, method, conf) in enumerate(zip(texts, methods, confidences)):
+            print(f"{method[:8]:<8}: ", end="")
+            for j in range(max_len):
+                char = text[j] if j < len(text) else '_'
+                print(f" {char} ", end="")
+            print(f" ({conf:.0f}%)")
+        
+        # Show matches
+        print("Match:   ", end="")
+        for i in range(max_len):
+            chars_at_pos = []
+            for text in texts:
+                if i < len(text):
+                    chars_at_pos.append(text[i])
+            
+            if len(set(chars_at_pos)) == 1 and len(chars_at_pos) > 1:
+                print(" ✅", end="")
+            else:
+                print(" ❌", end="")
+        print()
+    
+    def get_consensus_with_confidence(self, results):
+        """Get consensus text using confidence-weighted character selection."""
         if len(results) < 2:
             return None
         
         texts = [r['text'] for r in results]
-        max_len = max(len(t) for t in texts)
+        confidences = [r['final_confidence'] for r in results]
+        max_len = max(len(t) for t in texts) if texts else 0
         
         consensus = ""
         for i in range(max_len):
-            chars = []
-            for text in texts:
-                if i < len(text):
-                    chars.append(text[i])
+            char_votes = {}
             
-            if chars:
-                # Use most common character at this position
-                char_count = {}
-                for char in chars:
-                    char_count[char] = char_count.get(char, 0) + 1
-                
-                most_common = max(char_count.items(), key=lambda x: x[1])
-                if most_common[1] >= 2:  # At least 2 OCR methods agree
-                    consensus += most_common[0]
-                else:
-                    # Use highest confidence result's character
-                    consensus += results[0]['text'][i] if i < len(results[0]['text']) else ''
+            # Collect character votes with confidence weights
+            for j, (text, conf) in enumerate(zip(texts, confidences)):
+                if i < len(text):
+                    char = text[i]
+                    if char not in char_votes:
+                        char_votes[char] = {'count': 0, 'total_conf': 0, 'methods': []}
+                    char_votes[char]['count'] += 1
+                    char_votes[char]['total_conf'] += conf
+                    char_votes[char]['methods'].append(results[j]['method'])
+            
+            if char_votes:
+                # Select character with highest confidence or most votes
+                best_char = max(char_votes.items(), key=lambda x: (
+                    x[1]['count'],  # Number of votes
+                    x[1]['total_conf'] / x[1]['count']  # Average confidence
+                ))
+                consensus += best_char[0]
         
         return consensus if len(consensus) >= 6 else None
+    
+    def store_ocr_comparison(self, all_results, best_result):
+        """Store OCR comparison results in database for web UI display."""
+        try:
+            if hasattr(self, 'tracker') and self.tracker and hasattr(self.tracker, 'db'):
+                comparison_data = {
+                    'timestamp': datetime.now(),
+                    'ocr_methods': len(all_results),
+                    'results': [
+                        {
+                            'method': r['method'],
+                            'text': r['text'],
+                            'confidence': r['confidence'],
+                            'final_confidence': r['final_confidence'],
+                            'is_valid_indian': r['is_valid_indian'],
+                            'validation': r.get('validation', {})
+                        } for r in all_results
+                    ],
+                    'winner': {
+                        'method': best_result['method'],
+                        'text': best_result['text'],
+                        'confidence': best_result['final_confidence'],
+                        'is_valid': best_result['is_valid_indian']
+                    }
+                }
+                
+                # Store in ocr_comparisons collection
+                self.tracker.db.ocr_comparisons.insert_one(comparison_data)
+                
+        except Exception as e:
+            print(f"Database storage error: {e}")
     
     def fallback_ocr_methods(self, plate_image):
         """Fallback OCR methods when YOLO fails."""
@@ -714,7 +822,7 @@ class WorkingALPRSystem:
             # Read plate text
             plate_text, confidence = self.read_plate_text(plate_img)
             
-            if len(plate_text) >= 5 and confidence > 70:  # Lowered threshold for better detection
+            if len(plate_text) >= 6 and confidence > 80 and self.validate_plate_format(plate_text):  # Only valid Indian plates
                 # Save plate image to CCTV_photos directory
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 plate_filename = f"plate_{timestamp}_{i}.jpg"
