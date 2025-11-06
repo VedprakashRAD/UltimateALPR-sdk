@@ -171,14 +171,8 @@ class WorkingALPRSystem:
         """Initialize enhanced OCR models for better accuracy."""
         print("🚀 Setting up Enhanced OCR Pipeline...")
         
-        # Initialize EasyOCR
-        if EASYOCR_AVAILABLE:
-            try:
-                self.easyocr_reader = easyocr.Reader(['en'], gpu=False)
-                print("✅ EasyOCR initialized (98% accuracy)")
-            except Exception as e:
-                print(f"❌ EasyOCR failed: {e}")
-                self.easyocr_reader = None
+        # EasyOCR removed - using YOLO + PaddleOCR + Tesseract only
+        self.easyocr_reader = None
         
         # Initialize Simple Plate OCR
         try:
@@ -453,19 +447,19 @@ class WorkingALPRSystem:
             except Exception as e:
                 print(f"PaddleOCR error: {e}")
         
-        # Method 3: EasyOCR
-        if self.easyocr_reader:
+        # Method 3: Tesseract (if available)
+        if TESSERACT_AVAILABLE:
             try:
-                easy_text, easy_conf = self.read_with_easyocr(plate_image)
-                if easy_text and len(easy_text) >= 5:
+                tesseract_text, tesseract_conf = self.read_with_tesseract_enhanced(plate_image)
+                if tesseract_text and len(tesseract_text) >= 5:
                     ocr_results.append({
-                        'method': 'EasyOCR',
-                        'text': easy_text,
-                        'confidence': easy_conf,
+                        'method': 'Tesseract',
+                        'text': tesseract_text,
+                        'confidence': tesseract_conf,
                         'priority': 3
                     })
             except Exception as e:
-                print(f"EasyOCR error: {e}")
+                print(f"Tesseract error: {e}")
         
         # Analyze and select best result
         return self.select_best_plate_result(ocr_results)
