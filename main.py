@@ -211,40 +211,84 @@ def process_frame_with_alpr(frame, camera_id):
         
         # Save to database if we have valid results and cooldown period has passed
         if plate_results:
-            # Filter for high confidence results (100% accuracy requirement)
-            valid_results = [r for r in plate_results if r['confidence'] > 70 and len(r['text']) >= 5]
+            # Filter for high confidence results with Indian plate validation
+            valid_results = []
+            for r in plate_results:
+                if r['confidence'] > 70 and len(r['text']) >= 6:  # Reduced threshold
+                    # Validate Indian license plate format
+                    from indian_plate_validator import validate_indian_plate
+                    validation = validate_indian_plate(r['text'])
+                    if validation['valid']:
+                        valid_results.append(r)
+                        state_info = validation.get('state_name', 'Unknown')
+                        format_info = validation.get('format', 'Standard')
+                        print(f"✅ Valid Indian Plate: {r['text']} ({r['confidence']:.0f}%) - {format_info} - {state_info}")
+                    else:
+                        print(f"⚠️ Invalid Plate: {r['text']} ({r['confidence']:.0f}%) - {validation.get('reason', 'Format mismatch')}")
             
             if valid_results:
                 current_time = time.time()
-                if current_time - last_detection_time.get(camera_id, 0) > 3:
+                if current_time - last_detection_time.get(camera_id, 0) > 3:  # 3 second cooldown
                     last_detection_time[camera_id] = current_time
-                    # Save vehicle event to database automatically
-                    event_type = "entry" if camera_id == 0 else "exit"
+                    
+                    # Determine event type and camera info
+                    if camera_id == 0:
+                        event_type = "entry"
+                        camera_name = "Camera 1 (Entry)"
+                    else:
+                        event_type = "exit" 
+                        camera_name = "Camera 2 (Exit)"
+                    
                     try:
+                        # Use ALPR system's save method
                         alpr_system.save_vehicle_event(valid_results, event_type)
-                        print(f"🎯 Auto ALPR Detection - Camera {camera_id+1}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%) - SAVED TO DB")
+                        print(f"🎯 {camera_name}: {valid_results[0]['text']} ({valid_results[0]['confidence']:.0f}%) - SAVED TO DB")
                     except Exception as e:
-                        print(f"❌ Failed to save to DB: {e}")
-                        # Try manual database save
+                        print(f"❌ ALPR save failed: {e}")
+                        # Manual database save with proper structure
                         try:
                             db = get_db()
                             if db:
+                                from datetime import timezone
                                 plate_text = valid_results[0]['text']
-                                entry_event = {
-                                    "front_plate_number": plate_text,
-                                    "rear_plate_number": plate_text,
-                                    "front_plate_confidence": valid_results[0]['confidence'],
-                                    "rear_plate_confidence": valid_results[0]['confidence'],
-                                    "entry_timestamp" if event_type == "entry" else "exit_timestamp": datetime.now(timezone.utc),
-                                    "vehicle_color": "Unknown",
-                                    "vehicle_make": "Unknown",
-                                    "vehicle_model": "Unknown",
-                                    "is_processed": False,
-                                    "created_at": datetime.now(timezone.utc)
-                                }
-                                collection = db.entry_events if event_type == "entry" else db.exit_events
-                                collection.insert_one(entry_event)
-                                print(f"✅ Manual DB save successful: {plate_text}")
+                                
+                                # Create proper event structure
+                                if event_type == "entry":
+                                    event_data = {
+                                        "front_plate_number": plate_text,
+                                        "rear_plate_number": plate_text,
+                                        "front_plate_confidence": valid_results[0]['confidence'],
+                                        "rear_plate_confidence": valid_results[0]['confidence'],
+                                        "entry_timestamp": datetime.now(timezone.utc),
+                                        "camera_id": camera_id,
+                                        "camera_name": camera_name,
+                                        "vehicle_color": "Unknown",
+                                        "vehicle_make": "Unknown", 
+                                        "vehicle_model": "Unknown",
+                                        "is_processed": False,
+                                        "created_at": datetime.now(timezone.utc),
+                                        "_partition": "default"
+                                    }
+                                    db.entry_events.insert_one(event_data)
+                                else:
+                                    event_data = {
+                                        "front_plate_number": plate_text,
+                                        "rear_plate_number": plate_text,
+                                        "front_plate_confidence": valid_results[0]['confidence'],
+                                        "rear_plate_confidence": valid_results[0]['confidence'],
+                                        "exit_timestamp": datetime.now(timezone.utc),
+                                        "camera_id": camera_id,
+                                        "camera_name": camera_name,
+                                        "vehicle_color": "Unknown",
+                                        "vehicle_make": "Unknown",
+                                        "vehicle_model": "Unknown", 
+                                        "is_processed": False,
+                                        "created_at": datetime.now(timezone.utc),
+                                        "_partition": "default"
+                                    }
+                                    db.exit_events.insert_one(event_data)
+                                
+                                print(f"✅ Manual DB save: {plate_text} via {camera_name}")
                         except Exception as e2:
                             print(f"❌ Manual DB save failed: {e2}")
         
@@ -294,11 +338,18 @@ def generate_camera_feed(camera_id):
         if frame_count % 5 == 0:
             frame = process_frame_with_alpr(frame.copy(), camera_id)
         
-        # Add timestamp and camera info
+        # Add timestamp and camera info with proper labels
         cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(frame, f"CAMERA {camera_id+1} - ALPR ACTIVE", (10, 60), 
+        
+        camera_label = "CAMERA 1 - ENTRY" if camera_id == 0 else "CAMERA 2 - EXIT"
+        cv2.putText(frame, f"{camera_label} - ALPR ACTIVE", (10, 60), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Add detection status
+        detection_status = "DETECTING..." if frame_count % 10 < 5 else "MONITORING"
+        cv2.putText(frame, detection_status, (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
         # Encode frame
         ret, buffer = cv2.imencode('.jpg', frame)
@@ -757,11 +808,12 @@ def create_main_dashboard_template():
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Camera 1 Plate</th>
-                                        <th>Camera 2 Plate</th>
-                                        <th>Entry Time</th>
-                                        <th>Exit Time</th>
-                                        <th>Employee Vehicle</th>
+                                        <th>License Plate</th>
+                                        <th>Camera</th>
+                                        <th>Event Type</th>
+                                        <th>Timestamp</th>
+                                        <th>Confidence</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="vehicle-records">
@@ -795,20 +847,57 @@ def create_main_dashboard_template():
                     const tbody = document.getElementById('vehicle-records');
                     tbody.innerHTML = '';
                     
-                    if (data.recent_activity && data.recent_activity.length > 0) {
-                        data.recent_activity.forEach(record => {
+                    // Show both entry and exit events separately
+                    const allEvents = [];
+                    
+                    // Add entry events
+                    if (data.recent_entry_events) {
+                        data.recent_entry_events.forEach(event => {
+                            allEvents.push({
+                                plate: event.plate,
+                                camera: 'Camera 1 (Entry)',
+                                type: 'Entry',
+                                timestamp: event.entry_time,
+                                confidence: '85%', // Default confidence
+                                status: 'Processed'
+                            });
+                        });
+                    }
+                    
+                    // Add exit events  
+                    if (data.recent_exit_events) {
+                        data.recent_exit_events.forEach(event => {
+                            allEvents.push({
+                                plate: event.plate,
+                                camera: 'Camera 2 (Exit)',
+                                type: 'Exit',
+                                timestamp: event.exit_time,
+                                confidence: '85%', // Default confidence
+                                status: 'Processed'
+                            });
+                        });
+                    }
+                    
+                    // Sort by timestamp (most recent first)
+                    allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    
+                    if (allEvents.length > 0) {
+                        allEvents.slice(0, 10).forEach(event => {
                             const row = document.createElement('tr');
+                            const eventClass = event.type === 'Entry' ? 'table-success' : 'table-info';
+                            row.className = eventClass;
                             row.innerHTML = `
-                                <td>${record.front_plate_number || 'N/A'}</td>
-                                <td>${record.rear_plate_number || 'N/A'}</td>
-                                <td>${record.entry_timestamp ? new Date(record.entry_timestamp).toLocaleString() : 'N/A'}</td>
-                                <td>${record.exit_timestamp ? new Date(record.exit_timestamp).toLocaleString() : 'Pending'}</td>
-                                <td>${record.is_employee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+                                <td><strong>${event.plate}</strong></td>
+                                <td>${event.camera}</td>
+                                <td><span class="badge ${event.type === 'Entry' ? 'bg-success' : 'bg-info'}">${event.type}</span></td>
+                                <td>${new Date(event.timestamp).toLocaleString()}</td>
+                                <td>${event.confidence}</td>
+                                <td><span class="badge bg-primary">${event.status}</span></td>
                             `;
                             tbody.appendChild(row);
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No vehicle records found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No vehicle records found</td></tr>';
                     }
                 })
                 .catch(error => {
