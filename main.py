@@ -8,7 +8,7 @@ import sys
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 # Add paths for imports
@@ -49,6 +49,13 @@ camera2_feed = None
 camera1_lock = threading.Lock()
 camera2_lock = threading.Lock()
 vehicle_tracker = None
+# Separate cameras for each feed
+camera1_capture = None
+camera2_capture = None
+last_frame_camera1 = None
+last_frame_camera2 = None
+last_frame_time_camera1 = 0
+last_frame_time_camera2 = 0
 
 # Flask app
 app = Flask(__name__, template_folder='src/ui/templates', static_folder='src/ui/static')
@@ -56,10 +63,16 @@ app = Flask(__name__, template_folder='src/ui/templates', static_folder='src/ui/
 # Database configuration
 MONGO_URI = "mongodb://localhost:27017/"
 DB_NAME = "vehicle_tracking"
+MONGO_CLOUD_URI = os.getenv('MONGO_CLOUD_URI', '')  # Cloud MongoDB Atlas URI
 
 # Global database client
 db_client = None
 db_instance = None
+cloud_client = None
+cloud_db = None
+sync_enabled = False
+last_sync_time = None
+sync_stats = {'synced': 0, 'failed': 0, 'last_error': None}
 
 # Global ALPR system instances and tracking variables
 alpr_system_camera1 = None
@@ -68,8 +81,9 @@ last_detection_time = {}  # Track last detection time per camera
 
 def initialize_database():
     """Initialize persistent database connection."""
-    global db_client, db_instance
+    global db_client, db_instance, cloud_client, cloud_db, sync_enabled
     try:
+        # Local MongoDB
         db_client = MongoClient(
             MONGO_URI,
             serverSelectionTimeoutMS=5000,
@@ -77,9 +91,21 @@ def initialize_database():
             socketTimeoutMS=20000
         )
         db_instance = db_client[DB_NAME]
-        # Test connection
         db_client.admin.command('ping')
-        print(f"✅ Connected to MongoDB at {MONGO_URI}/{DB_NAME}")
+        print(f"✅ Connected to Local MongoDB at {MONGO_URI}/{DB_NAME}")
+        
+        # Cloud MongoDB (if configured)
+        if MONGO_CLOUD_URI:
+            try:
+                cloud_client = MongoClient(MONGO_CLOUD_URI, serverSelectionTimeoutMS=5000)
+                cloud_db = cloud_client[DB_NAME]
+                cloud_client.admin.command('ping')
+                sync_enabled = True
+                print(f"✅ Connected to Cloud MongoDB - Sync Enabled")
+            except Exception as e:
+                print(f"⚠️  Cloud MongoDB unavailable: {e}")
+                sync_enabled = False
+        
         return True
     except ConnectionFailure as e:
         print(f"❌ MongoDB connection failed: {e}")
@@ -89,6 +115,51 @@ def get_db():
     """Get database instance."""
     global db_instance
     return db_instance
+
+def sync_to_cloud():
+    """Sync local data to cloud MongoDB."""
+    global sync_stats, last_sync_time
+    
+    if not sync_enabled or not cloud_db:
+        return
+    
+    try:
+        db = get_db()
+        collections = ['entry_events', 'exit_events', 'vehicle_journeys', 'employee_vehicles']
+        
+        for coll_name in collections:
+            # Find unsynced documents
+            unsynced = list(db[coll_name].find({'synced_to_cloud': {'$ne': True}}).limit(100))
+            
+            if unsynced:
+                # Bulk insert to cloud
+                cloud_db[coll_name].insert_many(unsynced, ordered=False)
+                
+                # Mark as synced
+                ids = [doc['_id'] for doc in unsynced]
+                db[coll_name].update_many(
+                    {'_id': {'$in': ids}},
+                    {'$set': {'synced_to_cloud': True, 'synced_at': datetime.now()}}
+                )
+                
+                sync_stats['synced'] += len(unsynced)
+                print(f"☁️  Synced {len(unsynced)} {coll_name} to cloud")
+        
+        last_sync_time = datetime.now()
+        sync_stats['last_error'] = None
+        
+    except Exception as e:
+        sync_stats['failed'] += 1
+        sync_stats['last_error'] = str(e)
+        print(f"❌ Sync failed: {e}")
+
+def cloud_sync_thread():
+    """Background thread for continuous cloud sync."""
+    print("☁️  Cloud sync thread started")
+    while True:
+        if sync_enabled:
+            sync_to_cloud()
+        time.sleep(30)  # Sync every 30 seconds
 
 def get_system_stats(db):
     """Get system statistics from database."""
@@ -253,41 +324,96 @@ def process_frame_with_alpr(frame, camera_id):
         print(f"ALPR processing error for camera {camera_id}: {e}")
         return frame
 
-def generate_camera_feed(camera_id):
-    """Generate camera feed for streaming with ALPR processing."""
-    global alpr_system_camera1, alpr_system_camera2
+def camera1_capture_thread():
+    """Background thread to continuously capture frames from camera 1."""
+    global camera1_capture, last_frame_camera1, last_frame_time_camera1
     
-    # Always use front camera (index 0) for both feeds
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        # If camera not available, create a test pattern
-        frame_count = 0
+    camera1_capture = cv2.VideoCapture(0)  # First camera
+    if not camera1_capture.isOpened():
+        print("❌ Camera 1 (index 0) not available")
+        return
+    
+    print("✅ Camera 1 capture thread started")
+    
+    while True:
+        ret, frame = camera1_capture.read()
+        if not ret:
+            time.sleep(0.1)
+            continue
+        
+        with camera1_lock:
+            last_frame_camera1 = frame.copy()
+            last_frame_time_camera1 = time.time()
+        
+        time.sleep(0.033)  # ~30 FPS
+
+def camera2_capture_thread():
+    """Background thread to continuously capture frames from camera 2."""
+    global camera2_capture, last_frame_camera2, last_frame_time_camera2, last_frame_camera1
+    
+    # Try to open camera index 1 first
+    camera2_capture = cv2.VideoCapture(1)
+    
+    if not camera2_capture.isOpened():
+        print("⚠️  Camera 2 (index 1) not available - sharing Camera 1 feed")
+        print("✅ Both camera feeds will work using Camera 1")
+        # Fallback: Share frames from camera 1
         while True:
-            # Create a test image with text
-            img = np.zeros((480, 640, 3), dtype=np.uint8)
-            text = f"CAMERA {camera_id+1} - NO CAMERA"
-            cv2.putText(img, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
-            
-            # Encode frame
-            ret, buffer = cv2.imencode('.jpg', img)
-            if ret:
-                frame = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            
+            # Copy frames from camera 1
+            with camera1_lock:
+                if last_frame_camera1 is not None:
+                    with camera2_lock:
+                        last_frame_camera2 = last_frame_camera1.copy()
+                        last_frame_time_camera2 = time.time()
             time.sleep(0.033)  # ~30 FPS
         return
     
-    # Camera is available - process with ALPR
+    print("✅ Camera 2 capture thread started (separate camera)")
+    
+    while True:
+        ret, frame = camera2_capture.read()
+        if not ret:
+            time.sleep(0.1)
+            continue
+        
+        with camera2_lock:
+            last_frame_camera2 = frame.copy()
+            last_frame_time_camera2 = time.time()
+        
+        time.sleep(0.033)  # ~30 FPS
+
+def generate_camera_feed(camera_id):
+    """Generate camera feed for streaming with ALPR processing."""
+    global alpr_system_camera1, alpr_system_camera2
+    global last_frame_camera1, last_frame_camera2
+    
     frame_count = 0
     
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        # Get the latest frame from the appropriate camera
+        if camera_id == 0:
+            with camera1_lock:
+                frame = last_frame_camera1.copy() if last_frame_camera1 is not None else None
+        else:
+            with camera2_lock:
+                frame = last_frame_camera2.copy() if last_frame_camera2 is not None else None
+        
+        if frame is None:
+            # No frame available yet, create test pattern
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            text = f"CAMERA {camera_id+1} - WAITING FOR CAMERA"
+            cv2.putText(img, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
             
+            ret, buffer = cv2.imencode('.jpg', img)
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(0.1)
+            continue
+        
         frame_count += 1
         
         # Process every 5th frame to reduce CPU usage
@@ -305,13 +431,17 @@ def generate_camera_feed(camera_id):
         else:
             cv2.putText(frame, "CAMERA 2 - EXIT (ALPR ACTIVE)", (10, 60), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            # Check if using shared camera
+            if camera2_capture is None or not camera2_capture.isOpened():
+                cv2.putText(frame, "[SHARED FEED]", (10, 90), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
         
         # Encode frame
         ret, buffer = cv2.imencode('.jpg', frame)
         if ret:
-            frame = buffer.tobytes()
+            frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
         time.sleep(0.033)  # ~30 FPS
 
@@ -508,6 +638,26 @@ def test_alpr():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/sync_status')
+def sync_status():
+    """Get cloud sync status."""
+    return jsonify({
+        'success': True,
+        'sync_enabled': sync_enabled,
+        'last_sync': last_sync_time.isoformat() if last_sync_time else None,
+        'stats': sync_stats,
+        'cloud_uri': 'Connected' if MONGO_CLOUD_URI else 'Not configured'
+    })
+
+@app.route('/api/trigger_sync')
+def trigger_sync():
+    """Manually trigger cloud sync."""
+    if not sync_enabled:
+        return jsonify({'success': False, 'error': 'Cloud sync not enabled'})
+    
+    sync_to_cloud()
+    return jsonify({'success': True, 'message': 'Sync triggered', 'stats': sync_stats})
 
 @app.route('/api/simulate_vehicle')
 def simulate_vehicle():
@@ -868,17 +1018,42 @@ def main():
     if ALPR_SYSTEM_AVAILABLE:
         initialize_alpr_systems()
     
+    # Start camera capture threads for both cameras
+    camera1_thread = threading.Thread(target=camera1_capture_thread, daemon=True)
+    camera1_thread.start()
+    print("✅ Camera 1 capture thread started")
+    
+    camera2_thread = threading.Thread(target=camera2_capture_thread, daemon=True)
+    camera2_thread.start()
+    print("✅ Camera 2 capture thread started")
+    
+    # Start cloud sync thread
+    if sync_enabled:
+        sync_thread = threading.Thread(target=cloud_sync_thread, daemon=True)
+        sync_thread.start()
+        print("☁️  Cloud sync thread started")
+    
+    # Wait a moment for cameras to initialize
+    time.sleep(2)
+    
     print()
     print("📱 Web Dashboard:")
     print("   Access at: http://localhost:8089")
     print("   Camera 1 Feed: http://localhost:8089/camera1_feed")
     print("   Camera 2 Feed: http://localhost:8089/camera2_feed")
     print()
-    print("✨ New Features:")
-    print("   - Click the car icon to simulate vehicle events")
-    print("   - Data refreshes automatically every 5 seconds")
-    print("   - Camera feeds update every 30 seconds")
+    print("✨ Features:")
     print("   - Real-time ALPR processing")
+    print("   - Dual camera support (entry/exit)")
+    print("   - MongoDB local + cloud sync")
+    print("   - Auto-sync every 30 seconds")
+    print()
+    if sync_enabled:
+        print("☁️  Cloud Sync: ENABLED")
+        print("   - Sync Status: http://localhost:8089/api/sync_status")
+        print("   - Manual Sync: http://localhost:8089/api/trigger_sync")
+    else:
+        print("⚠️  Cloud Sync: DISABLED (Set MONGO_CLOUD_URI env variable)")
     print()
     print("🔌 Press Ctrl+C to stop all services")
     print()
