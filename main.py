@@ -286,12 +286,32 @@ def process_frame_with_alpr(frame, camera_id):
 
 def generate_camera_feed(camera_id):
     """Generate camera feed for streaming with ALPR processing."""
-    # Always use real camera processing with ALPR
-    return generate_real_camera_feed(camera_id)
-
-def generate_real_camera_feed(camera_id):
-    """Generate real camera feed with ALPR processing."""
-    cap = cv2.VideoCapture(camera_id)
+    global alpr_system_camera1, alpr_system_camera2
+    
+    # Always use front camera (index 0) for both feeds
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        # If camera not available, create a test pattern
+        frame_count = 0
+        while True:
+            # Create a test image with text
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            text = f"CAMERA {camera_id+1} - NO CAMERA"
+            cv2.putText(img, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+            
+            # Encode frame
+            ret, buffer = cv2.imencode('.jpg', img)
+            if ret:
+                frame = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            
+            time.sleep(0.033)  # ~30 FPS
+        return
+    
+    # Camera is available - process with ALPR
     frame_count = 0
     use_camera = cap.isOpened()
     
@@ -328,9 +348,13 @@ def generate_real_camera_feed(camera_id):
         cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
-        camera_label = "CAMERA 1 - ENTRY (LIVE)" if camera_id == 0 else "CAMERA 2 - EXIT (LIVE)"
-        cv2.putText(frame, camera_label, (10, 60), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # Different labels for each camera
+        if camera_id == 0:
+            cv2.putText(frame, "CAMERA 1 - ENTRY (ALPR ACTIVE)", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        else:
+            cv2.putText(frame, "CAMERA 2 - EXIT (ALPR ACTIVE)", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         status = "REAL CAMERA" if use_camera else "SYNTHETIC + ALPR"
         cv2.putText(frame, status, (10, 90), 
@@ -473,6 +497,8 @@ def generate_simulated_camera_feed(camera_id):
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
         
         time.sleep(0.033)  # ~30 FPS
+
+# Removed simulated camera feed - both cameras now use the same physical camera
 
 # Flask routes
 @app.route('/')

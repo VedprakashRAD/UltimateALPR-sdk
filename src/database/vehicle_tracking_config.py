@@ -8,13 +8,6 @@ import os
 # Database configuration
 DATABASE_PATH = os.environ.get("VEHICLE_TRACKING_DB", "vehicle_tracking.db")
 
-# MongoDB Realm Configuration
-REALM_APP_ID = os.getenv('REALM_APP_ID', '')
-REALM_API_KEY = os.getenv('REALM_API_KEY', '')
-USE_REALM_SYNC = os.getenv('USE_REALM_SYNC', 'true').lower() == 'true'
-REALM_DATABASE_NAME = os.getenv('REALM_DATABASE_NAME', 'vehicle_tracking')
-REALM_PARTITION_KEY = os.getenv('REALM_PARTITION_KEY', 'default')
-
 # ALPR SDK configuration
 ALPR_DOCKER_IMAGE = "alpr-arm64"
 ALPR_CONFIDENCE_THRESHOLD = 80.0  # Minimum confidence percentage for plate readings

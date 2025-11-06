@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Vehicle Tracking System using MongoDB Realm
-Memory optimized for Raspberry Pi systems.
+Raspberry Pi Optimized Vehicle Tracking System using ultimateALPR-SDK with MongoDB
+Memory optimized for 4GB usage on 8GB Raspberry Pi systems.
 """
 
 import os
@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import json
 import psutil
+from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo.errors import ConnectionFailure
 import threading
 import queue
 
@@ -19,28 +21,6 @@ import queue
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'database'))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
-
-# Import Realm configuration
-try:
-    from database.vehicle_tracking_config import (
-        REALM_APP_ID, REALM_API_KEY, USE_REALM_SYNC, 
-        REALM_DATABASE_NAME, REALM_PARTITION_KEY
-    )
-except ImportError:
-    REALM_APP_ID = ""
-    REALM_API_KEY = ""
-    USE_REALM_SYNC = True
-    REALM_DATABASE_NAME = "vehicle_tracking"
-    REALM_PARTITION_KEY = "default"
-
-# MongoDB Realm Database
-try:
-    import pymongo
-    from pymongo import MongoClient
-    REALM_AVAILABLE = True
-except ImportError:
-    REALM_AVAILABLE = False
-    print("❌ MongoDB Realm not available")
 
 # Try to import the ALPR SDK
 try:
@@ -52,33 +32,42 @@ except ImportError:
 
 
 class MemoryOptimizedVehicleTracker:
-    def __init__(self, realm_uri: str = "mongodb://localhost:27017/"):
+    def __init__(self, mongo_uri: str = "mongodb://localhost:27017/", db_name: str = "vehicle_tracking"):
         """
-        Initialize vehicle tracking system using MongoDB Realm.
+        Initialize memory-optimized vehicle tracking system for Raspberry Pi.
         
         Args:
-            realm_uri (str): MongoDB Realm connection URI
+            mongo_uri (str): MongoDB connection URI
+            db_name (str): Database name
         """
-        self.realm_uri = realm_uri
+        self.mongo_uri = mongo_uri
+        self.db_name = db_name
         self.client = None
         self.db = None
         self.sdk = None
-        self.processing_queue = queue.Queue(maxsize=50)
-        self.memory_threshold = 3.5 * 1024 * 1024 * 1024
+        self.processing_queue = queue.Queue(maxsize=50)  # Limit queue size
+        self.memory_threshold = 3.5 * 1024 * 1024 * 1024  # 3.5GB limit
         
-        self._init_realm_database()
+        self._init_mongodb()
         self._init_alpr_sdk()
         self._setup_collections()
         
-    def _init_realm_database(self):
-        """Initialize MongoDB Realm database."""
+    def _init_mongodb(self):
+        """Initialize MongoDB connection with optimized settings for Raspberry Pi."""
         try:
-            self.client = MongoClient(self.realm_uri)
-            self.db = self.client[REALM_DATABASE_NAME]
+            self.client = MongoClient(
+                self.mongo_uri,
+                maxPoolSize=5,  # Limit connection pool
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=10000,
+                socketTimeoutMS=20000
+            )
+            self.db = self.client[self.db_name]
+            # Test connection
             self.client.admin.command('ping')
-            print(f"✅ MongoDB Realm connected: {REALM_DATABASE_NAME}")
-        except Exception as e:
-            print(f"❌ MongoDB Realm connection failed: {e}")
+            print("MongoDB connection established")
+        except ConnectionFailure as e:
+            print(f"MongoDB connection failed: {e}")
             raise
             
     def _init_alpr_sdk(self):
@@ -96,24 +85,23 @@ class MemoryOptimizedVehicleTracker:
             raise
             
     def _setup_collections(self):
-        """Setup MongoDB Realm collections with indexes."""
+        """Setup MongoDB collections with indexes for performance."""
         # Entry events collection
-        self.db.entry_events.create_index([("entry_timestamp", -1)])
-        self.db.entry_events.create_index([("is_processed", 1)])
-        self.db.entry_events.create_index([("front_plate_number", 1)])
+        self.db.entry_events.create_index([("entry_timestamp", DESCENDING)])
+        self.db.entry_events.create_index([("is_processed", ASCENDING)])
+        self.db.entry_events.create_index([("front_plate_number", ASCENDING)])
         
         # Exit events collection
-        self.db.exit_events.create_index([("exit_timestamp", -1)])
-        self.db.exit_events.create_index([("is_processed", 1)])
+        self.db.exit_events.create_index([("exit_timestamp", DESCENDING)])
+        self.db.exit_events.create_index([("is_processed", ASCENDING)])
+        self.db.exit_events.create_index([("front_plate_number", ASCENDING)])
         
         # Vehicle journeys collection
-        self.db.vehicle_journeys.create_index([("entry_timestamp", -1)])
-        self.db.vehicle_journeys.create_index([("is_employee", 1)])
+        self.db.vehicle_journeys.create_index([("entry_timestamp", DESCENDING)])
+        self.db.vehicle_journeys.create_index([("is_employee", ASCENDING)])
         
         # Employee vehicles collection
-        self.db.employee_vehicles.create_index([("plate_number", 1)], unique=True)
-        
-        print("✅ MongoDB Realm collections initialized")
+        self.db.employee_vehicles.create_index([("plate_number", ASCENDING)], unique=True)
         
     def _check_memory_usage(self):
         """Monitor memory usage and trigger cleanup if needed."""
@@ -173,8 +161,7 @@ class MemoryOptimizedVehicleTracker:
                 "created_at": datetime.utcnow()
             }
             
-            # Save to MongoDB Realm
-            entry_event["_partition"] = REALM_PARTITION_KEY
+            # Save to MongoDB
             result = self.db.entry_events.insert_one(entry_event)
             entry_event["_id"] = result.inserted_id
             
@@ -634,202 +621,14 @@ class MemoryOptimizedVehicleTracker:
             "total_journeys": self.db.vehicle_journeys.count_documents({}),
             "unprocessed_entries": self.db.entry_events.count_documents({"is_processed": False}),
             "unprocessed_exits": self.db.exit_events.count_documents({"is_processed": False}),
-            "employee_vehicles": self.db.employee_vehicles.count_documents({"is_active": True}),
-            "database_type": "MongoDB Realm"
+            "employee_vehicles": self.db.employee_vehicles.count_documents({"is_active": True})
         }
-        
-        stats["realm_enabled"] = True
-        stats["partition_key"] = REALM_PARTITION_KEY
         
         return stats
         
-    def _init_realm_sync(self):
-        """Initialize MongoDB Realm sync functionality."""
-        try:
-            print(f"Initializing Realm sync with App ID: {REALM_APP_ID}")
-            self.sync_thread = threading.Thread(target=self._realm_sync_worker, daemon=True)
-            self.sync_thread.start()
-            print("Realm sync initialized")
-        except Exception as e:
-            print(f"Realm sync initialization failed: {e}")
-            self.realm_sync_enabled = False
-    
-    def _realm_sync_worker(self):
-        """Background worker for Realm sync operations."""
-        while True:
-            try:
-                time.sleep(REALM_SYNC_INTERVAL)
-                if self.realm_sync_enabled:
-                    self._sync_to_realm()
-            except Exception as e:
-                print(f"Realm sync error: {e}")
-                time.sleep(60)  # Wait before retry
-    
-    def _sync_to_realm(self):
-        """Sync local data to MongoDB Realm cloud and delete after successful sync."""
-        try:
-            batch_size = int(os.getenv('SYNC_BATCH_SIZE', '100'))
-            delete_after_sync = os.getenv('DELETE_AFTER_SYNC', 'true').lower() == 'true'
-            retain_days = int(os.getenv('RETAIN_DAYS_AFTER_SYNC', '7'))
-            
-            # Get unsynced data
-            unsynced_entries = list(self.db.entry_events.find({"synced_to_realm": {"$ne": True}}).limit(batch_size))
-            unsynced_exits = list(self.db.exit_events.find({"synced_to_realm": {"$ne": True}}).limit(batch_size))
-            unsynced_journeys = list(self.db.vehicle_journeys.find({"synced_to_realm": {"$ne": True}}).limit(batch_size))
-            
-            sync_count = 0
-            synced_ids = {'entries': [], 'exits': [], 'journeys': []}
-            
-            # Sync entry events
-            for entry in unsynced_entries:
-                self._add_realm_metadata(entry)
-                if self._send_to_cloud("entry", entry):
-                    self.db.entry_events.update_one(
-                        {"_id": entry["_id"]}, 
-                        {"$set": {
-                            "synced_to_realm": True,
-                            "cloud_sync_timestamp": datetime.utcnow()
-                        }}
-                    )
-                    synced_ids['entries'].append(entry["_id"])
-                    sync_count += 1
-            
-            # Sync exit events
-            for exit_event in unsynced_exits:
-                self._add_realm_metadata(exit_event)
-                if self._send_to_cloud("exit", exit_event):
-                    self.db.exit_events.update_one(
-                        {"_id": exit_event["_id"]}, 
-                        {"$set": {
-                            "synced_to_realm": True,
-                            "cloud_sync_timestamp": datetime.utcnow()
-                        }}
-                    )
-                    synced_ids['exits'].append(exit_event["_id"])
-                    sync_count += 1
-            
-            # Sync journeys
-            for journey in unsynced_journeys:
-                self._add_realm_metadata(journey)
-                if self._send_to_cloud("journey", journey):
-                    self.db.vehicle_journeys.update_one(
-                        {"_id": journey["_id"]}, 
-                        {"$set": {
-                            "synced_to_realm": True,
-                            "cloud_sync_timestamp": datetime.utcnow()
-                        }}
-                    )
-                    synced_ids['journeys'].append(journey["_id"])
-                    sync_count += 1
-            
-            if sync_count > 0:
-                print(f"✅ Synced {sync_count} records to cloud")
-                
-                # Delete local data after successful sync (if enabled)
-                if delete_after_sync:
-                    self._delete_synced_local_data(synced_ids, retain_days)
-                
-        except Exception as e:
-            print(f"❌ Realm sync error: {e}")
-    
-    def _send_to_cloud(self, data_type: str, data: dict) -> bool:
-        """Send data to cloud (mock implementation - replace with actual cloud API)."""
-        try:
-            # Mock cloud sync - replace with actual MongoDB Atlas API call
-            # For now, just simulate successful sync
-            print(f"📤 Sending {data_type} to cloud: {data.get('_id')}")
-            return True
-        except Exception as e:
-            print(f"❌ Cloud send failed for {data_type}: {e}")
-            return False
-    
-    def _delete_synced_local_data(self, synced_ids: dict, retain_days: int):
-        """Delete local data after successful cloud sync."""
-        try:
-            cutoff_date = datetime.utcnow() - timedelta(days=retain_days)
-            deleted_count = 0
-            
-            # Delete synced entries older than retain_days
-            if synced_ids['entries']:
-                result = self.db.entry_events.delete_many({
-                    "_id": {"$in": synced_ids['entries']},
-                    "cloud_sync_timestamp": {"$lt": cutoff_date}
-                })
-                deleted_count += result.deleted_count
-            
-            # Delete synced exits older than retain_days
-            if synced_ids['exits']:
-                result = self.db.exit_events.delete_many({
-                    "_id": {"$in": synced_ids['exits']},
-                    "cloud_sync_timestamp": {"$lt": cutoff_date}
-                })
-                deleted_count += result.deleted_count
-            
-            # Delete synced journeys older than retain_days
-            if synced_ids['journeys']:
-                result = self.db.vehicle_journeys.delete_many({
-                    "_id": {"$in": synced_ids['journeys']},
-                    "cloud_sync_timestamp": {"$lt": cutoff_date}
-                })
-                deleted_count += result.deleted_count
-            
-            if deleted_count > 0:
-                print(f"🗑️  Deleted {deleted_count} local records after cloud sync (retained {retain_days} days)")
-                
-        except Exception as e:
-            print(f"❌ Local data deletion error: {e}")
-    
-    def _add_realm_metadata(self, document):
-        """Add Realm-specific metadata to document."""
-        document["_partition"] = REALM_PARTITION_KEY
-        document["realm_sync_timestamp"] = datetime.utcnow()
-        document["device_id"] = os.environ.get("DEVICE_ID", "local_device")
-    
-    def get_sync_status(self):
-        """Get Realm sync status."""
-        if not self.realm_sync_enabled:
-            return {"enabled": False, "status": "disabled"}
-        
-        unsynced_count = (
-            self.db.entry_events.count_documents({"synced_to_realm": {"$ne": True}}) +
-            self.db.exit_events.count_documents({"synced_to_realm": {"$ne": True}}) +
-            self.db.vehicle_journeys.count_documents({"synced_to_realm": {"$ne": True}})
-        )
-        
-        # Get retention info
-        retain_days = int(os.getenv('RETAIN_DAYS_AFTER_SYNC', '7'))
-        cutoff_date = datetime.utcnow() - timedelta(days=retain_days)
-        
-        # Count data eligible for deletion
-        deletable_count = (
-            self.db.entry_events.count_documents({
-                "synced_to_realm": True,
-                "cloud_sync_timestamp": {"$lt": cutoff_date}
-            }) +
-            self.db.exit_events.count_documents({
-                "synced_to_realm": True,
-                "cloud_sync_timestamp": {"$lt": cutoff_date}
-            }) +
-            self.db.vehicle_journeys.count_documents({
-                "synced_to_realm": True,
-                "cloud_sync_timestamp": {"$lt": cutoff_date}
-            })
-        )
-        
-        return {
-            "enabled": True,
-            "unsynced_count": unsynced_count,
-            "deletable_count": deletable_count,
-            "retain_days": retain_days,
-            "delete_after_sync": os.getenv('DELETE_AFTER_SYNC', 'true').lower() == 'true',
-            "last_sync": datetime.utcnow().isoformat()
-        }
-
     def close(self):
         """Close connections and cleanup."""
-        if hasattr(self, 'sync_thread') and self.sync_thread:
-            print("Stopping Realm sync...")
-        if hasattr(self, 'client') and self.client:
+        if self.client:
             self.client.close()
         print("Vehicle tracking system closed")
 
