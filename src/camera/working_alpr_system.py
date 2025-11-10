@@ -167,48 +167,17 @@ class WorkingALPRSystem:
                 det_model_dir = os.path.join(base_dir, 'PP-OCRv3_mobile_det')
                 rec_model_dir = os.path.join(base_dir, 'en_PP-OCRv3_mobile_rec')
                 
-                if os.path.exists(onnx_det_model) and os.path.exists(onnx_rec_model):
-                    print("✅ ONNX models found - using for enhanced performance")
-                    # Use ONNX models for better performance
-                    paddle_ocr_config = {
-                        'lang': 'en',
-                        'det': True,
-                        'rec': True,
-                        'cls': False,
-                        'text_detection_model_dir': onnx_det_model,
-                        'text_recognition_model_dir': onnx_rec_model,
-                        'use_textline_orientation': False,
-                        'use_gpu': False,
-                        'precision': 'fp32',
-                    }
-                else:
-                    # Enhanced PaddleOCR configuration for better accuracy
-                    paddle_ocr_config = {
-                        'lang': 'en',
-                        'det': True,
-                        'rec': True,
-                        'cls': False,  # Disable text direction classification for license plates
-                        'text_detection_model_dir': det_model_dir if os.path.exists(det_model_dir) else None,
-                        'text_recognition_model_dir': rec_model_dir if os.path.exists(rec_model_dir) else None,
-                        'use_textline_orientation': False,
-                        'use_gpu': False,  # CPU inference for compatibility
-                        'precision': 'fp32',  # Use fp32 for better accuracy on CPU
-                    }
+                # For PaddleOCR 3.0.1, use the correct parameters
+                paddle_ocr_config = {
+                    'lang': 'en',
+                    'use_textline_orientation': False,  # Disable text direction classification for license plates
+                }
                 
                 # Remove None values
                 paddle_ocr_config = {k: v for k, v in paddle_ocr_config.items() if v is not None}
                 
                 self.paddle_ocr = PaddleOCR(**paddle_ocr_config)
                 print("✅ PaddleOCR 3.0.1 model loaded with enhanced configuration")
-                
-                if os.path.exists(onnx_det_model) and os.path.exists(onnx_rec_model):
-                    print(f"   Detection: {onnx_det_model}")
-                    print(f"   Recognition: {onnx_rec_model}")
-                elif os.path.exists(det_model_dir) and os.path.exists(rec_model_dir):
-                    print(f"   Detection: {det_model_dir}")
-                    print(f"   Recognition: {rec_model_dir}")
-                else:
-                    print("   Using default PaddleOCR models")
                     
             except Exception as e:
                 print(f"❌ PaddleOCR 3.0.1 loading failed: {e}")
@@ -505,28 +474,39 @@ class WorkingALPRSystem:
         return plates
         
     def enhance_plate_image(self, plate_image):
-        """Apply basic preprocessing for better accuracy."""
+        """Apply advanced preprocessing for better OCR accuracy."""
         try:
             if len(plate_image.shape) == 3:
                 gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
             else:
                 gray = plate_image.copy()
             
-            # Basic preprocessing pipeline
-            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(blurred)
+            # Advanced preprocessing pipeline for license plates
+            # 1. Noise reduction with bilateral filter
+            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
             
+            # 2. Contrast enhancement with CLAHE
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(denoised)
+            
+            # 3. Morphological operations to enhance characters
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
             enhanced = cv2.morphologyEx(enhanced, cv2.MORPH_CLOSE, kernel)
             
+            # 4. Additional sharpening
+            kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            enhanced = cv2.filter2D(enhanced, -1, kernel_sharpen)
+            
+            # 5. Resize to optimal size for OCR (minimum height of 64 pixels)
             height, width = enhanced.shape
             if height < 64:
                 scale = 64 / height
                 new_width = int(width * scale)
                 enhanced = cv2.resize(enhanced, (new_width, 64), interpolation=cv2.INTER_CUBIC)
             
-            enhanced = cv2.bilateralFilter(enhanced, 9, 75, 75)
+            # 6. Thresholding for better binarization
+            _, enhanced = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
             return enhanced
             
         except Exception as e:
@@ -918,79 +898,182 @@ class WorkingALPRSystem:
             return "", 0.0
         
         try:
+            # Ensure we have a valid image
+            if image is None or image.size == 0:
+                return "", 0.0
+                
             # Preprocess image for better OCR accuracy
             if isinstance(image, np.ndarray):
-                # Convert BGR to RGB if needed
+                # Convert BGR to RGB if needed and ensure correct shape
                 if len(image.shape) == 3 and image.shape[2] == 3:
+                    # Convert BGR to RGB
                     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                elif len(image.shape) == 2:
+                    # Grayscale image - convert to RGB
+                    rgb_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
                 else:
+                    # Already in correct format or unknown format
                     rgb_image = image
             else:
                 rgb_image = image
             
-            # Run PaddleOCR with enhanced parameters
-            results = self.paddle_ocr.ocr(rgb_image, det=True, rec=True, cls=False)
+            # Apply advanced preprocessing specifically for PaddleOCR
+            enhanced_image = self.enhance_plate_image(rgb_image)
             
-            if results and results[0]:
-                best_confidence = 0
-                best_text = ""
-                all_results = []
+            # Ensure the enhanced image has the correct format for PaddleOCR
+            if isinstance(enhanced_image, np.ndarray):
+                # Make sure we have a 3-channel image for PaddleOCR
+                if len(enhanced_image.shape) == 2:
+                    # Convert grayscale to RGB
+                    enhanced_image = cv2.cvtColor(enhanced_image, cv2.COLOR_GRAY2RGB)
+                elif len(enhanced_image.shape) == 3 and enhanced_image.shape[2] == 1:
+                    # Convert single channel to RGB
+                    enhanced_image = cv2.cvtColor(enhanced_image, cv2.COLOR_GRAY2RGB)
+                elif len(enhanced_image.shape) != 3 or enhanced_image.shape[2] != 3:
+                    # If shape is incorrect, convert to RGB
+                    enhanced_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2RGB)
+            
+            # Run PaddleOCR with enhanced parameters
+            # For PaddleOCR 3.0.1, use the correct API with .ocr() method
+            results = self.paddle_ocr.ocr(enhanced_image)
+            
+            # Handle None results
+            if results is None:
+                return "", 0.0
                 
-                # Process all detected text regions
-                for line in results[0]:
-                    if line and len(line) >= 2:
-                        # Extract text and confidence
-                        text_info = line[1]
-                        if isinstance(text_info, list) and len(text_info) >= 2:
-                            text = str(text_info[0]).upper()
-                            confidence = float(text_info[1]) * 100
-                            
-                            # Clean text (remove special characters, keep only alphanumeric)
-                            clean_text = re.sub(r'[^A-Z0-9]', '', text)
-                            
-                            # Store result
-                            all_results.append((clean_text, confidence))
-                            
-                            # Track best result - even short ones with high confidence
-                            if confidence > best_confidence and len(clean_text) >= 2:
-                                best_confidence = confidence
-                                best_text = clean_text
-                
-                # If we have multiple results, try to combine them for better accuracy
-                if len(all_results) > 1:
-                    # Sort by confidence and take top 3
-                    all_results.sort(key=lambda x: x[1], reverse=True)
-                    top_results = all_results[:3]
-                    
-                    # Try to find the best combination
-                    for text, conf in top_results:
-                        # If we have a result with good confidence, use it
-                        if conf > 60 and len(text) >= 3:
-                            print(f"   PaddleOCR selected: {text} ({conf:.1f}%)")
-                            return text, conf
-                    
-                    # If no good individual result, try merging top 2
-                    if len(top_results) >= 2:
-                        text1, conf1 = top_results[0]
-                        text2, conf2 = top_results[1]
+            # Debug print to understand the structure
+            # print(f"PaddleOCR results structure: {type(results)}")
+            
+            # Handle the new PaddleOCR 3.0.1 result structure
+            all_results = []
+            best_confidence = 0
+            best_text = ""
+            
+            # PaddleOCR 3.0.1 returns a list of dictionaries
+            if isinstance(results, list):
+                for result_item in results:
+                    if result_item is None:
+                        continue
                         
-                        # Simple merge strategy: concatenate if they're short
-                        if len(text1) <= 4 and len(text2) <= 4:
-                            merged_text = text1 + text2
-                            merged_conf = (conf1 + conf2) / 2
-                            print(f"   PaddleOCR merged: {text1}({conf1:.1f}%) + {text2}({conf2:.1f}%) = {merged_text}({merged_conf:.1f}%)")
-                            return merged_text, merged_conf
-                
-                # Return best single result
-                if best_text and best_confidence > 0:
-                    print(f"   PaddleOCR detected: {best_text} ({best_confidence:.1f}%)")
-                    return best_text, best_confidence
+                    # Handle dictionary structure (new in PaddleOCR 3.0.1)
+                    if isinstance(result_item, dict):
+                        try:
+                            # Extract text and confidence from the new structure
+                            rec_texts = result_item.get('rec_texts', [])
+                            rec_scores = result_item.get('rec_scores', [])
+                            
+                            # Process each detected text
+                            for i, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                                clean_text = str(text).upper()
+                                confidence = float(score) * 100
+                                
+                                # Clean text (remove special characters, keep only alphanumeric)
+                                clean_text = re.sub(r'[^A-Z0-9]', '', clean_text)
+                                
+                                # Store result
+                                all_results.append((clean_text, confidence))
+                                
+                                # Track best result
+                                if confidence > best_confidence and len(clean_text) >= 2:
+                                    best_confidence = confidence
+                                    best_text = clean_text
+                        except (ValueError, TypeError, KeyError) as e:
+                            # Handle malformed results
+                            continue
+                    # Handle legacy list structures
+                    elif isinstance(result_item, list):
+                        # Check if it's the expected structure [box_coords, [text, confidence]]
+                        if len(result_item) >= 2 and isinstance(result_item[1], list):
+                            text_info = result_item[1]
+                            if len(text_info) >= 2:
+                                try:
+                                    text = str(text_info[0]).upper()
+                                    confidence = float(text_info[1]) * 100
+                                    
+                                    # Clean text (remove special characters, keep only alphanumeric)
+                                    clean_text = re.sub(r'[^A-Z0-9]', '', text)
+                                    
+                                    # Store result
+                                    all_results.append((clean_text, confidence))
+                                    
+                                    # Track best result
+                                    if confidence > best_confidence and len(clean_text) >= 2:
+                                        best_confidence = confidence
+                                        best_text = clean_text
+                                except (IndexError, ValueError, TypeError) as e:
+                                    # Handle malformed results
+                                    continue
+            # Handle single dictionary results
+            elif isinstance(results, dict):
+                try:
+                    rec_texts = results.get('rec_texts', [])
+                    rec_scores = results.get('rec_scores', [])
                     
+                    # Process each detected text
+                    for i, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                        clean_text = str(text).upper()
+                        confidence = float(score) * 100
+                        
+                        # Clean text
+                        clean_text = re.sub(r'[^A-Z0-9]', '', clean_text)
+                        
+                        # Store result
+                        all_results.append((clean_text, confidence))
+                        
+                        # Track best result
+                        if confidence > best_confidence and len(clean_text) >= 2:
+                            best_confidence = confidence
+                            best_text = clean_text
+                except (ValueError, TypeError, KeyError) as e:
+                    # Handle malformed results
+                    pass
+            
+            # If we have multiple results, try to combine them for better accuracy
+            if len(all_results) > 1:
+                # Sort by confidence and take top 5
+                all_results.sort(key=lambda x: x[1], reverse=True)
+                top_results = all_results[:5]
+                
+                # Try to find the best combination
+                for text, conf in top_results:
+                    # If we have a result with good confidence, use it
+                    if conf > 50 and len(text) >= 3:
+                        print(f"   PaddleOCR selected: {text} ({conf:.1f}%)")
+                        return text, conf
+                
+                # Try to merge adjacent results that might be parts of the same plate
+                if len(top_results) >= 2:
+                    # Try merging top 2 with high confidence
+                    for i in range(min(3, len(top_results))):
+                        for j in range(i+1, min(4, len(top_results))):
+                            text1, conf1 = top_results[i]
+                            text2, conf2 = top_results[j]
+                            
+                            # Try different merge strategies
+                            merged_options = [
+                                text1 + text2,  # Concatenate
+                                text2 + text1,  # Reverse concatenate
+                            ]
+                            
+                            for merged_text in merged_options:
+                                clean_merged = re.sub(r'[^A-Z0-9]', '', merged_text)
+                                if 4 <= len(clean_merged) <= 12:  # Reasonable plate length
+                                    merged_conf = (conf1 + conf2) / 2
+                                    print(f"   PaddleOCR merged: '{text1}'({conf1:.1f}%) + '{text2}'({conf2:.1f}%) = '{clean_merged}'({merged_conf:.1f}%)")
+                                    return clean_merged, merged_conf
+            
+            # Return best single result if it meets minimum criteria
+            if best_text and best_confidence > 30 and len(best_text) >= 2:
+                print(f"   PaddleOCR detected: {best_text} ({best_confidence:.1f}%)")
+                return best_text, best_confidence
+                
             # No valid results found
             return "", 0.0
             
         except Exception as e:
             print(f"PaddleOCR 3.0.1 error: {e}")
+            import traceback
+            traceback.print_exc()
             # Try fallback approach
             try:
                 # Simple fallback - convert to grayscale and try again
@@ -1000,30 +1083,77 @@ class WorkingALPRSystem:
                     else:
                         gray = image
                     
+                    # Apply more aggressive preprocessing for fallback
                     # Enhance contrast
-                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
                     enhanced = clahe.apply(gray)
                     
+                    # Resize for better OCR
+                    height, width = enhanced.shape
+                    if height < 64:
+                        scale = 64 / height
+                        new_width = int(width * scale)
+                        enhanced = cv2.resize(enhanced, (new_width, 64), interpolation=cv2.INTER_CUBIC)
+                    
+                    # Ensure we have a 3-channel image for PaddleOCR
+                    if len(enhanced.shape) == 2:
+                        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
+                    
                     # Try OCR again
-                    results = self.paddle_ocr.ocr(enhanced, det=True, rec=True, cls=False)
-                    if results and results[0]:
-                        best_conf = 0
-                        best_result = ""
-                        for line in results[0]:
-                            if line and len(line) >= 2:
-                                text_info = line[1]
-                                if isinstance(text_info, list) and len(text_info) >= 2:
-                                    text = str(text_info[0]).upper()
-                                    confidence = float(text_info[1]) * 100
-                                    clean_text = re.sub(r'[^A-Z0-9]', '', text)
-                                    if len(clean_text) >= 2 and confidence > best_conf:
-                                        best_conf = confidence
-                                        best_result = clean_text
-                        if best_result:
-                            print(f"   PaddleOCR fallback: {best_result} ({best_conf:.1f}%)")
-                            return best_result, best_conf
+                    results = self.paddle_ocr.ocr(enhanced)
+                    
+                    # Handle fallback results with same logic
+                    if results is None:
+                        return "", 0.0
+                        
+                    all_results = []
+                    best_conf = 0
+                    best_result = ""
+                    
+                    if isinstance(results, list):
+                        for result_item in results:
+                            if result_item is None:
+                                continue
+                                
+                            if isinstance(result_item, dict):
+                                try:
+                                    rec_texts = result_item.get('rec_texts', [])
+                                    rec_scores = result_item.get('rec_scores', [])
+                                    
+                                    # Process each detected text
+                                    for i, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                                        clean_text = str(text).upper()
+                                        confidence = float(score) * 100
+                                        
+                                        # Clean text
+                                        clean_text = re.sub(r'[^A-Z0-9]', '', clean_text)
+                                        
+                                        if len(clean_text) >= 2 and confidence > best_conf:
+                                            best_conf = confidence
+                                            best_result = clean_text
+                                except (ValueError, TypeError, KeyError):
+                                    continue
+                            elif isinstance(result_item, list):
+                                if len(result_item) >= 2 and isinstance(result_item[1], list):
+                                    text_info = result_item[1]
+                                    if len(text_info) >= 2:
+                                        try:
+                                            text = str(text_info[0]).upper()
+                                            confidence = float(text_info[1]) * 100
+                                            clean_text = re.sub(r'[^A-Z0-9]', '', text)
+                                            if len(clean_text) >= 2 and confidence > best_conf:
+                                                best_conf = confidence
+                                                best_result = clean_text
+                                        except (IndexError, ValueError, TypeError):
+                                            continue
+                                    
+                    if best_result:
+                        print(f"   PaddleOCR fallback: {best_result} ({best_conf:.1f}%)")
+                        return best_result, best_conf
             except Exception as e2:
                 print(f"PaddleOCR fallback error: {e2}")
+                import traceback
+                traceback.print_exc()
         
         return "", 0.0
     
@@ -1196,8 +1326,8 @@ class WorkingALPRSystem:
         if not text or text in ["NO-OCR", "EMPTY", "NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"]:
             return False
             
-        # Accept plates with reasonable confidence and length
-        if len(text) >= 3 and confidence > 40:
+        # More permissive validation for real-world scenarios
+        if len(text) >= 2 and confidence > 30:
             # Check if it has a mix of letters and numbers (typical for license plates)
             has_letters = any(c.isalpha() for c in text)
             has_numbers = any(c.isdigit() for c in text)
@@ -1207,7 +1337,7 @@ class WorkingALPRSystem:
                 return True
                 
             # Accept if it's longer and has reasonable confidence
-            if len(text) >= 5 and confidence > 50:
+            if len(text) >= 4 and confidence > 40:
                 return True
                 
             # Accept if it matches common Indian plate patterns even partially
@@ -1215,7 +1345,11 @@ class WorkingALPRSystem:
                 return True
                 
         # Accept high confidence results even if they're short
-        if len(text) >= 2 and confidence > 70:
+        if len(text) >= 2 and confidence > 60:
+            return True
+            
+        # Accept any text with very high confidence (>80%) regardless of format
+        if confidence > 80:
             return True
             
         return False
