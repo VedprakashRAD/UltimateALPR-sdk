@@ -1,5 +1,3 @@
-
-
 # YOLO OCR Vehicle Tracking System
 
 🎯 **YOLO-Powered License Plate Recognition (96.5% Accuracy, 80ms Processing)** 🎯
@@ -50,6 +48,85 @@ Revolutionary vehicle tracking system using **YOLO OCR** for direct character de
 4. OCR extracts and records front plate number
 5. System pairs both plate numbers (reverse matching)
 6. Exit event is logged and matched with entry record
+
+### Detailed Architecture Components
+
+#### 1. Vehicle Identification System
+The system employs advanced computer vision techniques for comprehensive vehicle identification:
+
+**Dual Camera Approach**:
+- **Camera 1 (Entry)**: Front-facing for capturing front license plates
+- **Camera 2 (Entry/Exit)**: Rear-facing for capturing rear license plates during both entry and exit
+
+**Vehicle Attribute Detection**:
+- **Color Detection**: Uses HSV color space analysis with predefined ranges for common vehicle colors (red, blue, green, yellow, white, black, silver)
+- **Make/Model Recognition**: Implements placeholder detection with random selection from common Indian vehicle makes/models (can be enhanced with dedicated ML models)
+- **Vehicle Sizing**: Categorizes vehicles as small, medium, or large based on bounding box dimensions for better tracking
+
+**Processing Pipeline**:
+- Entry: Camera1 captures front plate → Camera2 captures rear plate → System pairs them by time window matching
+- Exit: Camera2 captures rear plate → Camera1 captures front plate → System matches with entry record
+
+#### 2. Number Plate Detection System
+The system uses a multi-method hierarchy for robust plate detection:
+
+**Detection Methods (Priority Order)**:
+1. **YOLO Direct Plate Detection** (Primary)
+   - Uses specialized `plate_ocr_yolo.pt` model
+   - Directly detects plates without vehicle detection first
+   - Fastest and most accurate method (~80ms processing time)
+
+2. **Haar Cascade Detection** (Secondary)
+   - Traditional computer vision approach
+   - Uses `haarcascade_russian_plate_number.xml`
+   - Fallback when YOLO is unavailable
+
+3. **Contour Analysis** (Tertiary)
+   - Shape-based detection using edge detection
+   - Filters rectangular shapes with Indian plate aspect ratios (3.0-5.5:1)
+   - Works well with various lighting conditions
+
+#### 3. Number Plate Number Extraction System
+The system implements a sophisticated multi-OCR pipeline for maximum accuracy:
+
+**OCR Engines**:
+1. **Primary Engine: YOLO OCR**
+   - Custom trained YOLOv8 character detection model
+   - Direct character recognition (no traditional OCR)
+   - 96.5% accuracy, ~80ms processing time
+   - Specialized for Indian license plates
+
+2. **Secondary Engine: PaddleOCR 3.0.1**
+   - Enhanced deep learning OCR with preprocessing
+   - 92% accuracy, ~120ms processing time
+   - Now integrated with ONNX models for better performance
+
+3. **Fallback Engine: Tesseract**
+   - Traditional OCR engine
+   - 85% accuracy on clear plates, ~150ms processing time
+
+**Processing Pipeline**:
+1. **Multi-OCR Execution**: All engines process the plate image in parallel
+2. **Result Analysis**: Each result is validated against Indian license plate formats
+3. **Confidence Scoring**: Results are weighted based on confidence levels
+4. **Consensus Building**: Character-by-character comparison of multiple OCR results
+5. **Best Result Selection**: Sorted by validity, confidence, and priority
+
+**Indian License Plate Support**:
+The system validates and extracts information from multiple plate formats:
+- **Standard Format**: XX00XX0000 (e.g., KA05NP3747)
+- **Bharat Series**: 00BH0000XX
+- **Military**: ↑YYBaseXXXXXXClass
+- **Diplomatic**: CountryCode/CD/CC/UN/UniqueNumber
+- **Temporary**: TMMYYAA0123ZZ
+- **Trade**: AB12Z0123TC0001
+
+**Validation Logic**:
+- **Format Validation**: Regex pattern matching for all Indian plate formats
+- **State Code Verification**: Checks against valid Indian state/UT codes
+- **Character Analysis**: Ensures mix of letters and numbers
+- **Length Validation**: 3-15 character length requirements
+- **Confidence Thresholds**: Adaptive thresholds for different plate conditions
 
 ## Key Features
 
@@ -392,7 +469,6 @@ Our MongoDB implementation includes four main collections:
 
 #### Storage Management
 - Centralized image storage in CCTV_photos directory
-- Automatic deletion of processed images to save space
 - Configurable retention periods through environment variables
 
 #### Web Interface
@@ -448,7 +524,7 @@ DETECTION_COOLDOWN=5
 #### Automatic Image Cleanup
 To prevent storage overflow, our system includes an automatic cleanup mechanism:
 
-- Images are deleted after processing when `AUTO_DELETE_IMAGES=true`
+- Images are managed after processing when `AUTO_DELETE_IMAGES=true`
 - Configurable retention periods for unprocessed images
 - Storage monitoring and reporting
 
@@ -492,7 +568,7 @@ Our web interface provides several REST API endpoints:
 
 The system can be customized through environment variables:
 
-- **AUTO_DELETE_IMAGES**: Enable/disable automatic image deletion
+- **AUTO_DELETE_IMAGES**: Enable/disable automatic image management
 - **KEEP_PROCESSED_IMAGES**: Retain processed images
 - **DETECTION_COOLDOWN**: Minimum time between vehicle detections
 - **CONFIDENCE_THRESHOLD**: Minimum OCR confidence for plate recognition
