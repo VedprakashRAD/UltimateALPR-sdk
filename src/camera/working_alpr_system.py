@@ -158,24 +158,42 @@ class WorkingALPRSystem:
                 # Enhanced PaddleOCR loading with support for paddlepaddle==3.0.0, paddlex==3.0.1, paddleocr==3.0.1
                 print("🚀 Loading PaddleOCR 3.0.1 with enhanced configuration...")
                 
-                # Use local PaddleOCR models from models/paddle directory
+                # Check if ONNX models are available for better performance
+                onnx_det_model = 'models/onnx/det'
+                onnx_rec_model = 'models/onnx/rec'
+                
+                # Use local PaddleOCR models from models/paddle directory (initialize variables)
                 base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models', 'paddle')
                 det_model_dir = os.path.join(base_dir, 'PP-OCRv3_mobile_det')
                 rec_model_dir = os.path.join(base_dir, 'en_PP-OCRv3_mobile_rec')
                 
-                # Enhanced PaddleOCR configuration for better accuracy
-                paddle_ocr_config = {
-                    'lang': 'en',
-                    'det': True,
-                    'rec': True,
-                    'cls': False,  # Disable text direction classification for license plates
-                    'det_model_dir': det_model_dir if os.path.exists(det_model_dir) else None,
-                    'rec_model_dir': rec_model_dir if os.path.exists(rec_model_dir) else None,
-                    'use_angle_cls': False,
-                    'use_space_char': False,
-                    'use_gpu': False,  # CPU inference for compatibility
-                    'precision': 'fp32',  # Use fp32 for better accuracy on CPU
-                }
+                if os.path.exists(onnx_det_model) and os.path.exists(onnx_rec_model):
+                    print("✅ ONNX models found - using for enhanced performance")
+                    # Use ONNX models for better performance
+                    paddle_ocr_config = {
+                        'lang': 'en',
+                        'det': True,
+                        'rec': True,
+                        'cls': False,
+                        'text_detection_model_dir': onnx_det_model,
+                        'text_recognition_model_dir': onnx_rec_model,
+                        'use_textline_orientation': False,
+                        'use_gpu': False,
+                        'precision': 'fp32',
+                    }
+                else:
+                    # Enhanced PaddleOCR configuration for better accuracy
+                    paddle_ocr_config = {
+                        'lang': 'en',
+                        'det': True,
+                        'rec': True,
+                        'cls': False,  # Disable text direction classification for license plates
+                        'text_detection_model_dir': det_model_dir if os.path.exists(det_model_dir) else None,
+                        'text_recognition_model_dir': rec_model_dir if os.path.exists(rec_model_dir) else None,
+                        'use_textline_orientation': False,
+                        'use_gpu': False,  # CPU inference for compatibility
+                        'precision': 'fp32',  # Use fp32 for better accuracy on CPU
+                    }
                 
                 # Remove None values
                 paddle_ocr_config = {k: v for k, v in paddle_ocr_config.items() if v is not None}
@@ -183,7 +201,10 @@ class WorkingALPRSystem:
                 self.paddle_ocr = PaddleOCR(**paddle_ocr_config)
                 print("✅ PaddleOCR 3.0.1 model loaded with enhanced configuration")
                 
-                if os.path.exists(det_model_dir) and os.path.exists(rec_model_dir):
+                if os.path.exists(onnx_det_model) and os.path.exists(onnx_rec_model):
+                    print(f"   Detection: {onnx_det_model}")
+                    print(f"   Recognition: {onnx_rec_model}")
+                elif os.path.exists(det_model_dir) and os.path.exists(rec_model_dir):
                     print(f"   Detection: {det_model_dir}")
                     print(f"   Recognition: {rec_model_dir}")
                 else:
@@ -193,7 +214,7 @@ class WorkingALPRSystem:
                 print(f"❌ PaddleOCR 3.0.1 loading failed: {e}")
                 # Fallback to default PaddleOCR
                 try:
-                    self.paddle_ocr = PaddleOCR(lang='en', use_angle_cls=False, use_space_char=False)
+                    self.paddle_ocr = PaddleOCR(lang='en', use_textline_orientation=False)
                     print("✅ PaddleOCR fallback model loaded")
                 except Exception as e2:
                     print(f"❌ PaddleOCR fallback also failed: {e2}")
@@ -885,7 +906,14 @@ class WorkingALPRSystem:
         return "NO-OCR", 0.0
     
     def read_with_paddleocr_enhanced(self, image):
-        """Enhanced PaddleOCR method with support for paddlepaddle==3.0.0, paddlex==3.0.1, paddleocr==3.0.1."""
+        """Enhanced PaddleOCR method with support for paddlepaddle==3.0.0, paddlex==3.0.1, paddleocr==3.0.1.
+        
+        This method implements several optimization techniques:
+        1. Image preprocessing for better OCR accuracy
+        2. Multi-result analysis for improved confidence
+        3. Result merging for fragmented detections
+        4. Fallback mechanisms for robust operation
+        """
         if not self.paddle_ocr:
             return "", 0.0
         
