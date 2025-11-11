@@ -120,18 +120,21 @@ def sync_to_cloud():
     """Sync local data to cloud MongoDB."""
     global sync_stats, last_sync_time
     
-    if not sync_enabled or not cloud_db:
+    if not sync_enabled or cloud_db is None:
         return
     
     try:
         db = get_db()
+        if db is None:
+            return
+            
         collections = ['entry_events', 'exit_events', 'vehicle_journeys', 'employee_vehicles']
         
         for coll_name in collections:
             # Find unsynced documents
             unsynced = list(db[coll_name].find({'synced_to_cloud': {'$ne': True}}).limit(100))
             
-            if unsynced:
+            if unsynced and cloud_db is not None:
                 # Bulk insert to cloud
                 cloud_db[coll_name].insert_many(unsynced, ordered=False)
                 
@@ -246,6 +249,7 @@ def initialize_alpr_systems():
     
     try:
         # Initialize ALPR systems for both cameras
+        from src.camera.working_alpr_system import WorkingALPRSystem
         alpr_system_camera1 = WorkingALPRSystem()
         alpr_system_camera2 = WorkingALPRSystem()
         
@@ -266,7 +270,7 @@ def process_frame_with_alpr(frame, camera_id):
     # Select the appropriate ALPR system
     alpr_system = alpr_system_camera1 if camera_id == 0 else alpr_system_camera2
     
-    if not alpr_system or not ALPR_SYSTEM_AVAILABLE:
+    if alpr_system is None or not ALPR_SYSTEM_AVAILABLE:
         return frame
     
     try:
@@ -299,7 +303,7 @@ def process_frame_with_alpr(frame, camera_id):
                         # Try manual database save
                         try:
                             db = get_db()
-                            if db:
+                            if db is not None:
                                 plate_text = valid_results[0]['text']
                                 entry_event = {
                                     "front_plate_number": plate_text,
@@ -333,19 +337,30 @@ def camera1_capture_thread():
         print("❌ Camera 1 (index 0) not available")
         return
     
+    # Set camera properties for better performance
+    camera1_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size
+    camera1_capture.set(cv2.CAP_PROP_FPS, 30)  # Set FPS
+    
     print("✅ Camera 1 capture thread started")
     
     while True:
         ret, frame = camera1_capture.read()
         if not ret:
-            time.sleep(0.1)
+            time.sleep(0.033)  # Wait for next frame
             continue
         
-        with camera1_lock:
-            last_frame_camera1 = frame.copy()
-            last_frame_time_camera1 = time.time()
+        # Resize frame for faster processing if needed
+        if frame is not None and frame.shape[0] > 720:
+            scale = 720 / frame.shape[0]
+            new_width = int(frame.shape[1] * scale)
+            frame = cv2.resize(frame, (new_width, 720))
         
-        time.sleep(0.033)  # ~30 FPS
+        with camera1_lock:
+            if frame is not None:
+                last_frame_camera1 = frame.copy()
+                last_frame_time_camera1 = time.time()
+        
+        time.sleep(0.016)  # ~60 FPS capture rate
 
 def camera2_capture_thread():
     """Background thread to continuously capture frames from camera 2."""
@@ -354,18 +369,26 @@ def camera2_capture_thread():
     # Try to open camera index 1 first
     camera2_capture = cv2.VideoCapture(1)
     
+    # Set camera properties for better performance
+    if camera2_capture.isOpened():
+        camera2_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size
+        camera2_capture.set(cv2.CAP_PROP_FPS, 30)  # Set FPS
+    
     if not camera2_capture.isOpened():
         print("⚠️  Camera 2 (index 1) not available - sharing Camera 1 feed")
         print("✅ Both camera feeds will work using Camera 1")
-        # Fallback: Share frames from camera 1
+        # Fallback: Share frames from camera 1 with reduced processing
         while True:
             # Copy frames from camera 1
             with camera1_lock:
                 if last_frame_camera1 is not None:
                     with camera2_lock:
-                        last_frame_camera2 = last_frame_camera1.copy()
-                        last_frame_time_camera2 = time.time()
-            time.sleep(0.033)  # ~30 FPS
+                        # Only copy if it's been a while since last copy to reduce CPU usage
+                        current_time = time.time()
+                        if current_time - last_frame_time_camera2 > 0.1:  # 10 FPS for shared feed
+                            last_frame_camera2 = last_frame_camera1.copy()
+                            last_frame_time_camera2 = current_time
+            time.sleep(0.05)  # 20 FPS check rate
         return
     
     print("✅ Camera 2 capture thread started (separate camera)")
@@ -373,14 +396,21 @@ def camera2_capture_thread():
     while True:
         ret, frame = camera2_capture.read()
         if not ret:
-            time.sleep(0.1)
+            time.sleep(0.033)
             continue
         
-        with camera2_lock:
-            last_frame_camera2 = frame.copy()
-            last_frame_time_camera2 = time.time()
+        # Resize frame for faster processing if needed
+        if frame is not None and frame.shape[0] > 720:
+            scale = 720 / frame.shape[0]
+            new_width = int(frame.shape[1] * scale)
+            frame = cv2.resize(frame, (new_width, 720))
         
-        time.sleep(0.033)  # ~30 FPS
+        with camera2_lock:
+            if frame is not None:
+                last_frame_camera2 = frame.copy()
+                last_frame_time_camera2 = time.time()
+        
+        time.sleep(0.016)  # ~60 FPS capture rate
 
 def generate_camera_feed(camera_id):
     """Generate camera feed for streaming with ALPR processing."""
@@ -388,15 +418,19 @@ def generate_camera_feed(camera_id):
     global last_frame_camera1, last_frame_camera2
     
     frame_count = 0
+    last_processed_time = 0
     
     while True:
         # Get the latest frame from the appropriate camera
+        frame = None
         if camera_id == 0:
             with camera1_lock:
-                frame = last_frame_camera1.copy() if last_frame_camera1 is not None else None
+                if last_frame_camera1 is not None:
+                    frame = last_frame_camera1.copy()
         else:
             with camera2_lock:
-                frame = last_frame_camera2.copy() if last_frame_camera2 is not None else None
+                if last_frame_camera2 is not None:
+                    frame = last_frame_camera2.copy()
         
         if frame is None:
             # No frame available yet, create test pattern
@@ -416,9 +450,11 @@ def generate_camera_feed(camera_id):
         
         frame_count += 1
         
-        # Process every 5th frame to reduce CPU usage
-        if frame_count % 5 == 0:
+        # Process frames less frequently to reduce CPU usage and prevent blocking
+        current_time = time.time()
+        if frame_count % 10 == 0 and (current_time - last_processed_time) > 0.5:  # Process every 0.5 seconds
             frame = process_frame_with_alpr(frame.copy(), camera_id)
+            last_processed_time = current_time
         
         # Add timestamp and camera info
         cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 30), 
@@ -436,14 +472,14 @@ def generate_camera_feed(camera_id):
                 cv2.putText(frame, "[SHARED FEED]", (10, 90), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
         
-        # Encode frame
-        ret, buffer = cv2.imencode('.jpg', frame)
+        # Encode frame with lower quality for faster streaming
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ret:
             frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
-        time.sleep(0.033)  # ~30 FPS
+        time.sleep(0.033)  # ~30 FPS streaming rate
 
 # Removed simulated camera feed - both cameras now use the same physical camera
 
