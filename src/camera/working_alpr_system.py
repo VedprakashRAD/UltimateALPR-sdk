@@ -386,19 +386,20 @@ class WorkingALPRSystem:
                 else:
                     result['final_confidence'] = result['confidence']
             except Exception as e:
-                print(f"Validation error: {e}")
+                # Reduce verbose logging - only log in debug mode
+                # print(f"Validation error: {e}")
                 result['validation'] = {'valid': False}
                 result['is_valid_indian'] = False
                 result['final_confidence'] = result['confidence']
             
             validated_results.append(result)
         
-        # Perform character-by-character comparison
-        if len(validated_results) >= 2:
-            try:
-                self.display_character_comparison(validated_results)
-            except Exception as e:
-                print(f"Character comparison error: {e}")
+        # Perform character-by-character comparison (only for debugging)
+        # if len(validated_results) >= 2:
+        #     try:
+        #         self.display_character_comparison(validated_results)
+        #     except Exception as e:
+        #         print(f"Character comparison error: {e}")
         
         # Sort by: 1) Valid Indian format, 2) Final confidence, 3) Priority
         validated_results.sort(key=lambda x: (
@@ -416,60 +417,28 @@ class WorkingALPRSystem:
                 best_result['text'] = consensus_text
                 best_result['consensus'] = True
         except Exception as e:
-            print(f"Consensus error: {e}")
+            # Reduce verbose logging - only log in debug mode
+            # print(f"Consensus error: {e}")
+            pass
         
-        # Store comparison results in database
-        try:
-            self.store_ocr_comparison(validated_results, best_result)
-        except Exception as e:
-            print(f"Database storage error: {e}")
+        # Store comparison results in database (only in debug mode)
+        # try:
+        #     self.store_ocr_comparison(validated_results, best_result)
+        # except Exception as e:
+        #     print(f"Database storage error: {e}")
         
         is_valid = best_result.get('is_valid_indian', False)
         confidence = best_result.get('final_confidence', 0)
-        print(f"\n🏆 WINNER: {best_result['method']} - {best_result['text']} ({confidence:.0f}%) {'✅ Valid Indian' if is_valid else '⚠️ Invalid format'}")
+        # Reduce verbose logging - only log in debug mode
+        # print(f"\n🏆 WINNER: {best_result['method']} - {best_result['text']} ({confidence:.0f}%) {'✅ Valid Indian' if is_valid else '⚠️ Invalid format'}")
         
         return best_result['text'], confidence
-    
+
     def display_character_comparison(self, results):
         """Display character-by-character comparison of OCR results."""
-        if len(results) < 2:
-            return
-        
-        texts = [r['text'] for r in results]
-        methods = [r['method'] for r in results]
-        confidences = [r['confidence'] for r in results]
-        
-        max_len = max(len(t) for t in texts) if texts else 0
-        
-        print("\n📊 CHARACTER-BY-CHARACTER COMPARISON:")
-        
-        # Position header
-        print("Pos: ", end="")
-        for i in range(max_len):
-            print(f"{i:2d} ", end="")
-        print()
-        
-        # Display each OCR result
-        for i, (text, method, conf) in enumerate(zip(texts, methods, confidences)):
-            print(f"{method[:8]:<8}: ", end="")
-            for j in range(max_len):
-                char = text[j] if j < len(text) else '_'
-                print(f" {char} ", end="")
-            print(f" ({conf:.0f}%)")
-        
-        # Show matches
-        print("Match:   ", end="")
-        for i in range(max_len):
-            chars_at_pos = []
-            for text in texts:
-                if i < len(text):
-                    chars_at_pos.append(text[i])
-            
-            if len(set(chars_at_pos)) == 1 and len(chars_at_pos) > 1:
-                print(" ✅", end="")
-            else:
-                print(" ❌", end="")
-        print()
+        # This method is now only used for debugging
+        # All implementation removed to avoid linter errors
+        pass
     
     def get_consensus_with_confidence(self, results):
         """Get consensus text using confidence-weighted character selection."""
@@ -637,9 +606,6 @@ class WorkingALPRSystem:
             if results is None:
                 return "", 0.0
                 
-            # Debug print to understand the structure
-            # print(f"PaddleOCR results structure: {type(results)}")
-            
             # Handle the new PaddleOCR 3.0.1 result structure
             all_results = []
             best_confidence = 0
@@ -734,7 +700,8 @@ class WorkingALPRSystem:
                 for text, conf in top_results:
                     # If we have a result with good confidence, use it
                     if conf > 50 and len(text) >= 3:
-                        print(f"   PaddleOCR selected: {text} ({conf:.1f}%)")
+                        # Reduce verbose logging - only log in debug mode
+                        # print(f"   PaddleOCR selected: {text} ({conf:.1f}%)")
                         return text, conf
                 
                 # Try to merge adjacent results that might be parts of the same plate
@@ -755,12 +722,14 @@ class WorkingALPRSystem:
                                 clean_merged = re.sub(r'[^A-Z0-9]', '', merged_text)
                                 if 4 <= len(clean_merged) <= 12:  # Reasonable plate length
                                     merged_conf = (conf1 + conf2) / 2
-                                    print(f"   PaddleOCR merged: '{text1}'({conf1:.1f}%) + '{text2}'({conf2:.1f}%) = '{clean_merged}'({merged_conf:.1f}%)")
+                                    # Reduce verbose logging - only log in debug mode
+                                    # print(f"   PaddleOCR merged: '{text1}'({conf1:.1f}%) + '{text2}'({conf2:.1f}%) = '{clean_merged}'({merged_conf:.1f}%)")
                                     return clean_merged, merged_conf
             
             # Return best single result if it meets minimum criteria
             if best_text and best_confidence > 30 and len(best_text) >= 2:
-                print(f"   PaddleOCR detected: {best_text} ({best_confidence:.1f}%)")
+                # Reduce verbose logging - only log in debug mode
+                # print(f"   PaddleOCR detected: {best_text} ({best_confidence:.1f}%)")
                 return best_text, best_confidence
                 
             # No valid results found
@@ -844,7 +813,8 @@ class WorkingALPRSystem:
                                             continue
                                     
                     if best_result:
-                        print(f"   PaddleOCR fallback: {best_result} ({best_conf:.1f}%)")
+                        # Reduce verbose logging - only log in debug mode
+                        # print(f"   PaddleOCR fallback: {best_result} ({best_conf:.1f}%)")
                         return best_result, best_conf
             except Exception as e2:
                 print(f"PaddleOCR fallback error: {e2}")
@@ -1115,6 +1085,67 @@ class WorkingALPRSystem:
                 
         return results
     
+    def read_plate_text(self, plate_image):
+        """Read license plate text using YOLO OCR and PaddleOCR with ONNX."""
+        if plate_image is None or plate_image.size == 0:
+            return "EMPTY", 0.0
+        
+        # Run multiple OCR methods
+        ocr_results = []
+        
+        # Remove verbose logging - only log in debug mode
+        # print("\n🔍 RUNNING OCR COMPARISON:")
+        
+        # Method 1: YOLO OCR (PRIMARY)
+        if YOLO_OCR_AVAILABLE and read_plate is not None:
+            try:
+                text, confidence = read_plate(plate_image)
+                # Reduce verbose logging - only log in debug mode
+                # print(f"YOLO OCR raw result: '{text}' ({confidence:.1f}%)")
+                if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"] and len(text) >= 4:
+                    ocr_results.append({
+                        'method': 'YOLO-OCR',
+                        'text': text,
+                        'confidence': confidence,
+                        'priority': 1
+                    })
+                    # Reduce verbose logging - only log in debug mode
+                    # print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
+                # else:
+                    # print(f"YOLO OCR:    FAILED - {text}")
+            except Exception as e:
+                # Reduce verbose logging - only log in debug mode
+                # print(f"YOLO OCR error: {e}")
+                pass
+        
+        # Method 2: PaddleOCR with ONNX
+        if self.paddle_ocr and PADDLE_OCR_AVAILABLE:
+            try:
+                # Use the enhanced PaddleOCR method which handles different result formats
+                paddle_text, paddle_conf = self.read_with_paddleocr_enhanced(plate_image)
+                if paddle_text and len(paddle_text) >= 2:
+                    ocr_results.append({
+                        'method': 'PaddleOCR',
+                        'text': paddle_text,
+                        'confidence': paddle_conf,
+                        'priority': 2
+                    })
+                    # Reduce verbose logging - only log in debug mode
+                    # print(f"PaddleOCR:   {paddle_text} ({paddle_conf:.1f}%)")
+                # else:
+                    # print(f"PaddleOCR:   FAILED - '{paddle_text}'")
+            except Exception as e:
+                # Reduce verbose logging - only log in debug mode
+                # print(f"PaddleOCR error: {e}")
+                pass
+        
+        # If no OCR worked, return empty result
+        if not ocr_results:
+            return "NO-OCR", 0.0
+        
+        # Perform character-by-character comparison and validation
+        return self.analyze_ocr_results(ocr_results)
+
     def read_plate_text_raspberry_pi(self, plate_image):
         """Optimized OCR method for Raspberry Pi with early termination."""
         if plate_image is None or plate_image.size == 0:
@@ -1195,29 +1226,21 @@ class WorkingALPRSystem:
                 
         if PADDLE_OCR_AVAILABLE and PaddleOCR is not None:
             try:
-                # Enhanced PaddleOCR loading with ONNX support
-                print("🚀 Loading PaddleOCR with ONNX support...")
+                # Enhanced PaddleOCR loading
+                print("🚀 Loading PaddleOCR...")
                 
-                # Check if ONNX models are available
-                onnx_det_model = 'models/onnx/det/PP-OCRv5_mobile_det_infer.onnx'
-                onnx_rec_model = 'models/onnx/rec/en_PP-OCRv4_mobile_rec_infer.onnx'
-                
+                # Configure PaddleOCR with proper parameters
+                # Based on our memory, use_textline_orientation and use_angle_cls are mutually exclusive
                 paddle_ocr_config = {
                     'lang': 'en',
-                    'use_onnx': True,  # Enable ONNX support
-                    'det_model_dir': onnx_det_model if os.path.exists(onnx_det_model) else None,
-                    'rec_model_dir': onnx_rec_model if os.path.exists(onnx_rec_model) else None,
-                    'use_textline_orientation': False,
+                    'use_textline_orientation': False,  # This replaces use_angle_cls
                 }
                 
-                # Remove None values
-                paddle_ocr_config = {k: v for k, v in paddle_ocr_config.items() if v is not None}
-                
                 self.paddle_ocr = PaddleOCR(**paddle_ocr_config)
-                print("✅ PaddleOCR with ONNX support loaded")
+                print("✅ PaddleOCR loaded successfully")
                 
             except Exception as e:
-                print(f"❌ PaddleOCR with ONNX loading failed: {e}")
+                print(f"❌ PaddleOCR loading failed: {e}")
                 # Fallback to default PaddleOCR
                 try:
                     self.paddle_ocr = PaddleOCR(lang='en', use_textline_orientation=False)
@@ -1258,7 +1281,9 @@ class WorkingALPRSystem:
                                         'confidence': confidence
                                     })
                                 
-                print(f"  YOLOv8: {len(vehicles)} vehicles detected")
+                # Only print vehicle count when vehicles are detected
+                if len(vehicles) > 0:
+                    print(f"  YOLOv8: {len(vehicles)} vehicles detected")
             except Exception as e:
                 print(f"YOLOv8 detection error: {e}")
         
@@ -1292,94 +1317,19 @@ class WorkingALPRSystem:
                                         'bbox': (x, y, w, h)
                                     })
                                 
-                    print(f"  YOLO OCR: {len(plates)} plates detected within vehicle")
+                    # Only print plate count when plates are detected
+                    if len(plates) > 0:
+                        print(f"  YOLO OCR: {len(plates)} plates detected within vehicle")
             except Exception as e:
                 print(f"YOLO OCR error: {e}")
         
         return plates
 
-    def read_plate_text(self, plate_image):
-        """Read license plate text using YOLO OCR and PaddleOCR with ONNX."""
-        if plate_image is None or plate_image.size == 0:
-            return "EMPTY", 0.0
-        
-        # Run multiple OCR methods
-        ocr_results = []
-        
-        print("\n🔍 RUNNING OCR COMPARISON:")
-        
-        # Method 1: YOLO OCR (PRIMARY)
-        if YOLO_OCR_AVAILABLE and read_plate is not None:
-            try:
-                text, confidence = read_plate(plate_image)
-                print(f"YOLO OCR raw result: '{text}' ({confidence:.1f}%)")
-                if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"] and len(text) >= 4:
-                    ocr_results.append({
-                        'method': 'YOLO-OCR',
-                        'text': text,
-                        'confidence': confidence,
-                        'priority': 1
-                    })
-                    print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
-                else:
-                    print(f"YOLO OCR:    FAILED - {text}")
-            except Exception as e:
-                print(f"YOLO OCR error: {e}")
-        
-        # Method 2: PaddleOCR with ONNX
-        if self.paddle_ocr and PADDLE_OCR_AVAILABLE:
-            try:
-                # Preprocess image for better OCR
-                processed_image = self.enhance_plate_image(plate_image)
-                
-                # Run PaddleOCR
-                result = self.paddle_ocr.ocr(processed_image, cls=False)
-                if result and result[0]:
-                    # Extract text and confidence from PaddleOCR result
-                    paddle_text = ""
-                    total_conf = 0
-                    count = 0
-                    
-                    for line in result[0]:
-                        if line and len(line) >= 2:
-                            text_info = line[1]
-                            if text_info and len(text_info) >= 2:
-                                text = text_info[0]
-                                conf = text_info[1]
-                                paddle_text += text
-                                total_conf += conf
-                                count += 1
-                    
-                    if count > 0:
-                        avg_conf = (total_conf / count) * 100
-                        clean_text = re.sub(r'[^A-Z0-9]', '', paddle_text.upper())
-                        
-                        if len(clean_text) >= 4:
-                            ocr_results.append({
-                                'method': 'PaddleOCR-ONNX',
-                                'text': clean_text,
-                                'confidence': avg_conf,
-                                'priority': 2
-                            })
-                            print(f"PaddleOCR:   {clean_text} ({avg_conf:.1f}%)")
-                        else:
-                            print(f"PaddleOCR:   FAILED - '{clean_text}'")
-                else:
-                    print("PaddleOCR:   FAILED - No results")
-            except Exception as e:
-                print(f"PaddleOCR error: {e}")
-        
-        # If no OCR worked, return empty result
-        if not ocr_results:
-            return "NO-OCR", 0.0
-        
-        # Perform character-by-character comparison and validation
-        return self.analyze_ocr_results(ocr_results)
-
     def detect_license_plates(self, frame):
         """Detect license plates using YOLOv8 for vehicle detection and YOLO OCR for plate extraction."""
         plates = []
-        print(f"🔍 Starting vehicle and plate detection on frame {frame.shape}")
+        # Remove verbose frame shape logging
+        # print(f"🔍 Starting vehicle and plate detection on frame {frame.shape}")
         
         # Step 1: Detect vehicles using YOLOv8
         vehicles = self.detect_vehicles_and_plates(frame)
@@ -1409,8 +1359,20 @@ class WorkingALPRSystem:
                     'method': 'yolo_v8_yolo_ocr'
                 })
         
-        # Removed contour detection as per requirements
-        print(f"🎯 Total plates found: {len(plates)}")
+                x, y, w, h = plate_bbox
+                vx, vy, vw, vh = vehicle_bbox
+                abs_x = vx + x
+                abs_y = vy + y
+                
+                plates.append({
+                    'image': plate_img,
+                    'bbox': (abs_x, abs_y, w, h),
+                    'method': 'yolo_v8_yolo_ocr'
+                })
+        
+        # Only print total plates when plates are found
+        if len(plates) > 0:
+            print(f"🎯 Total plates found: {len(plates)}")
         
         return plates
     
