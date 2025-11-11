@@ -19,58 +19,55 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
 
 # Try to import OCR libraries
-try:
-    import pytesseract
-    TESSERACT_AVAILABLE = True
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    print("⚠️  Tesseract not available")
+TESSERACT_AVAILABLE = False
+pytesseract = None
 
+PADDLE_OCR_AVAILABLE = False
+PaddleOCR = None
 try:
     from paddleocr import PaddleOCR
     PADDLE_OCR_AVAILABLE = True
 except ImportError:
-    PADDLE_OCR_AVAILABLE = False
     print("⚠️  PaddleOCR not available")
 
 # Enhanced OCR imports
-try:
-    import easyocr
-    EASYOCR_AVAILABLE = True
-except ImportError:
-    EASYOCR_AVAILABLE = False
-    print("⚠️  EasyOCR not available")
+EASYOCR_AVAILABLE = False
+easyocr = None
 
 # YOLO OCR import
+YOLO_OCR_AVAILABLE = False
+read_plate = None
 try:
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
     from read_plate_yolo import read_plate
     YOLO_OCR_AVAILABLE = True
     print("✅ YOLO Plate OCR available")
 except ImportError:
-    YOLO_OCR_AVAILABLE = False
     print("⚠️  YOLO Plate OCR not available")
 
-
-
-
-
+YOLO_AVAILABLE = False
+YOLO = None
+# Try different import methods for YOLO
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
 except ImportError:
-    YOLO_AVAILABLE = False
-    print("⚠️  YOLOv11 not available")
+    print("⚠️  YOLOv8 not available")
+    YOLO = None
 
+TORCH_AVAILABLE = False
 try:
     import torch
     import torchvision.transforms as transforms
     TORCH_AVAILABLE = True
 except ImportError:
-    TORCH_AVAILABLE = False
     print("⚠️  PyTorch not available")
 
 # Import modules
+from tracking.vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
+import database.vehicle_tracking_config as vehicle_tracking_config
+from utils.env_loader import AUTO_DELETE_IMAGES, KEEP_PROCESSED_IMAGES
+
 from tracking.vehicle_tracking_system_mongodb import MemoryOptimizedVehicleTracker
 import database.vehicle_tracking_config as vehicle_tracking_config
 from utils.env_loader import AUTO_DELETE_IMAGES, KEEP_PROCESSED_IMAGES
@@ -138,57 +135,6 @@ class WorkingALPRSystem:
                 
         print("⚠️  No plate cascade found - using contour detection")
         
-    def load_ai_models(self):
-        """Load YOLOv11 and PaddleOCR models."""
-        if YOLO_AVAILABLE:
-            try:
-                # Use the specialized license plate OCR model instead of general object detection
-                plate_model_path = 'models/plate_ocr_yolo.pt'
-                if os.path.exists(plate_model_path):
-                    self.yolo_model = YOLO(plate_model_path)
-                    print("✅ YOLO Plate OCR model loaded (specialized for license plates)")
-                else:
-                    self.yolo_model = YOLO('models/yolo11n.pt')  # Fallback to general model
-                    print("⚠️  Using general YOLO model - plate detection may be less accurate")
-            except Exception as e:
-                print(f"❌ YOLO loading failed: {e}")
-                
-        if PADDLE_OCR_AVAILABLE:
-            try:
-                # Enhanced PaddleOCR loading with support for paddlepaddle==3.0.0, paddlex==3.0.1, paddleocr==3.0.1
-                print("🚀 Loading PaddleOCR 3.0.1 with enhanced configuration...")
-                
-                # Check if ONNX models are available for better performance
-                onnx_det_model = 'models/onnx/det'
-                onnx_rec_model = 'models/onnx/rec'
-                
-                # Use local PaddleOCR models from models/paddle directory (initialize variables)
-                base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models', 'paddle')
-                det_model_dir = os.path.join(base_dir, 'PP-OCRv3_mobile_det')
-                rec_model_dir = os.path.join(base_dir, 'en_PP-OCRv3_mobile_rec')
-                
-                # For PaddleOCR 3.0.1, use the correct parameters
-                paddle_ocr_config = {
-                    'lang': 'en',
-                    'use_textline_orientation': False,  # Disable text direction classification for license plates
-                }
-                
-                # Remove None values
-                paddle_ocr_config = {k: v for k, v in paddle_ocr_config.items() if v is not None}
-                
-                self.paddle_ocr = PaddleOCR(**paddle_ocr_config)
-                print("✅ PaddleOCR 3.0.1 model loaded with enhanced configuration")
-                    
-            except Exception as e:
-                print(f"❌ PaddleOCR 3.0.1 loading failed: {e}")
-                # Fallback to default PaddleOCR
-                try:
-                    self.paddle_ocr = PaddleOCR(lang='en', use_textline_orientation=False)
-                    print("✅ PaddleOCR fallback model loaded")
-                except Exception as e2:
-                    print(f"❌ PaddleOCR fallback also failed: {e2}")
-                    self.paddle_ocr = None
-                
     def load_deep_lpr_model(self):
         """Load Deep License Plate Recognition from cloned repository."""
         # Check if we have the cloned repository
@@ -219,14 +165,8 @@ class WorkingALPRSystem:
         # EasyOCR removed - using YOLO + PaddleOCR + Tesseract only
         self.easyocr_reader = None
         
-        # Initialize Simple Plate OCR
-        try:
-            from simple_plate_ocr import SimplePlateOCR
-            self.simple_ocr = SimplePlateOCR()
-            print("✅ Simple Plate OCR initialized (Focused on actual plates)")
-        except Exception as e:
-            print(f"❌ Simple Plate OCR failed: {e}")
-            self.simple_ocr = None
+        # Simple Plate OCR not available
+        self.simple_ocr = None
         
 
         
@@ -312,74 +252,6 @@ class WorkingALPRSystem:
         import random
         return random.choice(makes), random.choice(models)
     
-    def detect_license_plates(self, frame):
-        """Detect license plates using YOLOv11, Haar Cascade, and contour methods."""
-        plates = []
-        print(f"🔍 Starting plate detection on frame {frame.shape}")
-        
-        # Method 1: YOLOv11 detection (best accuracy)
-        # Modified to directly detect plates instead of vehicles first
-        if self.yolo_model:
-            try:
-                results = self.yolo_model(frame, verbose=False)
-                plate_count = 0
-                for result in results:
-                    boxes = result.boxes
-                    if boxes is not None:
-                        for box in boxes:
-                            # Get class ID and confidence
-                            class_id = int(box.cls[0])
-                            confidence = float(box.conf[0])
-                            
-                            # Extract bounding box coordinates
-                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                            x, y, w, h = int(x1), int(y1), int(x2-x1), int(y2-y1)
-                            
-                            # Extract plate region directly
-                            if x >= 0 and y >= 0 and x + w <= frame.shape[1] and y + h <= frame.shape[0]:
-                                plate_img = frame[y:y+h, x:x+w]
-                                plates.append({
-                                    'image': plate_img,
-                                    'bbox': (x, y, w, h),
-                                    'method': 'yolo_direct'
-                                })
-                                plate_count += 1
-                                
-                print(f"  YOLO: {plate_count} potential plates detected directly")
-            except Exception as e:
-                print(f"YOLO detection error: {e}")
-        
-        # Method 2: Haar Cascade (if available)
-        if self.plate_cascade:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            detected_plates = self.plate_cascade.detectMultiScale(gray, 1.1, 4)
-            print(f"  Cascade: {len(detected_plates)} plates detected")
-            
-            for (x, y, w, h) in detected_plates:
-                x = max(0, x)
-                y = max(0, y)
-                w = min(frame.shape[1] - x, w)
-                h = min(frame.shape[0] - y, h)
-                
-                if w > 0 and h > 0:
-                    plate_img = frame[y:y+h, x:x+w]
-                    plates.append({
-                        'image': plate_img,
-                        'bbox': (x, y, w, h),
-                        'method': 'cascade'
-                    })
-        
-        # Method 3: Contour-based detection
-        contour_plates = self.detect_plates_by_contour(frame)
-        plates.extend(contour_plates)
-        print(f"  Contour: {len(contour_plates)} plates detected")
-        
-        print(f"🎯 Total plates found: {len(plates)}")
-        
-        # Only return actual detected plates, no debug/test plates
-        # Remove the debug test plate generation to prevent continuous processing
-        return plates
-        
     def extract_plate_regions(self, frame, x, y, w, h, class_id):
         """Extract potential license plate regions from detected vehicle based on type."""
         regions = []
@@ -428,91 +300,6 @@ class WorkingALPRSystem:
         
         return regions
         
-    def detect_plates_by_contour(self, frame):
-        """Detect plates using contour analysis."""
-        plates = []
-        
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Apply bilateral filter
-        filtered = cv2.bilateralFilter(gray, 11, 17, 17)
-        
-        # Find edges
-        edges = cv2.Canny(filtered, 30, 200)
-        
-        # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
-        
-        for contour in contours:
-            # Approximate contour
-            epsilon = 0.018 * cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, epsilon, True)
-            
-            # Look for rectangular shapes (potential plates)
-            if len(approx) == 4:
-                x, y, w, h = cv2.boundingRect(approx)
-                
-                # Check aspect ratio (Indian license plate ratio ~4:1)
-                if h > 0:
-                    aspect_ratio = w / h
-                    if 3.0 <= aspect_ratio <= 5.5 and w > 120 and h > 25:
-                        x = max(0, x)
-                        y = max(0, y)
-                        w = min(frame.shape[1] - x, w)
-                        h = min(frame.shape[0] - y, h)
-                        
-                        if w > 0 and h > 0:
-                            plate_img = frame[y:y+h, x:x+w]
-                            plates.append({
-                                'image': plate_img,
-                                'bbox': (x, y, w, h),
-                                'method': 'contour'
-                            })
-                    
-        return plates
-        
-    def enhance_plate_image(self, plate_image):
-        """Apply advanced preprocessing for better OCR accuracy."""
-        try:
-            if len(plate_image.shape) == 3:
-                gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = plate_image.copy()
-            
-            # Advanced preprocessing pipeline for license plates
-            # 1. Noise reduction with bilateral filter
-            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
-            
-            # 2. Contrast enhancement with CLAHE
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(denoised)
-            
-            # 3. Morphological operations to enhance characters
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            enhanced = cv2.morphologyEx(enhanced, cv2.MORPH_CLOSE, kernel)
-            
-            # 4. Additional sharpening
-            kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            enhanced = cv2.filter2D(enhanced, -1, kernel_sharpen)
-            
-            # 5. Resize to optimal size for OCR (minimum height of 64 pixels)
-            height, width = enhanced.shape
-            if height < 64:
-                scale = 64 / height
-                new_width = int(width * scale)
-                enhanced = cv2.resize(enhanced, (new_width, 64), interpolation=cv2.INTER_CUBIC)
-            
-            # 6. Thresholding for better binarization
-            _, enhanced = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            return enhanced
-            
-        except Exception as e:
-            print(f"Image enhancement error: {e}")
-            return plate_image
-    
     def read_with_easyocr(self, image):
         """Read text using EasyOCR (98% accuracy)."""
         if not self.easyocr_reader:
@@ -561,88 +348,6 @@ class WorkingALPRSystem:
         if result != text:
             print(f"🔧 Corrected: {text} → {result}")
         return result
-    
-    def read_plate_text(self, plate_image):
-        """Multi-OCR comparison with character-by-character analysis and database storage.
-        
-        This method implements a high-speed multi-OCR pipeline that processes license plates
-        using multiple OCR engines in parallel for maximum accuracy. The processing logic
-        is optimized for speed with typical processing times under 100ms per plate.
-        
-        OCR Engines Used:
-        1. YOLO OCR (Primary) - Custom trained model, 96.5% accuracy, ~80ms
-        2. PaddleOCR 3.0.1 - Enhanced accuracy with preprocessing, ~120ms
-        3. Tesseract - Fallback engine, ~150ms
-        
-        The system uses early termination logic - if a high-confidence result is found,
-        processing stops immediately for performance optimization.
-        """
-        if plate_image is None or plate_image.size == 0:
-            return "EMPTY", 0.0
-        
-        # Run multiple OCR methods
-        ocr_results = []
-        
-        print("\n🔍 RUNNING MULTI-OCR COMPARISON:")
-        
-        # Method 1: YOLO OCR (PRIMARY)
-        if YOLO_OCR_AVAILABLE:
-            try:
-                text, confidence = read_plate(plate_image)
-                print(f"YOLO OCR raw result: '{text}' ({confidence:.1f}%)")
-                if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"] and len(text) >= 4:
-                    ocr_results.append({
-                        'method': 'YOLO-OCR',
-                        'text': text,
-                        'confidence': confidence,
-                        'priority': 1
-                    })
-                    print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
-                else:
-                    print(f"YOLO OCR:    FAILED - {text}")
-            except Exception as e:
-                print(f"YOLO OCR error: {e}")
-        
-        # Method 2: PaddleOCR
-        if self.paddle_ocr:
-            try:
-                paddle_text, paddle_conf = self.read_with_paddleocr_enhanced(plate_image)
-                if paddle_text and len(paddle_text) >= 4:
-                    ocr_results.append({
-                        'method': 'PaddleOCR',
-                        'text': paddle_text,
-                        'confidence': paddle_conf,
-                        'priority': 2
-                    })
-                    print(f"PaddleOCR:   {paddle_text} ({paddle_conf:.1f}%)")
-                else:
-                    print(f"PaddleOCR:   FAILED - '{paddle_text}'")
-            except Exception as e:
-                print(f"PaddleOCR error: {e}")
-        
-        # Method 3: Tesseract (if available)
-        if TESSERACT_AVAILABLE:
-            try:
-                tesseract_text, tesseract_conf = self.read_with_tesseract_enhanced(plate_image)
-                if tesseract_text and len(tesseract_text) >= 4:
-                    ocr_results.append({
-                        'method': 'Tesseract',
-                        'text': tesseract_text,
-                        'confidence': tesseract_conf,
-                        'priority': 3
-                    })
-                    print(f"Tesseract:   {tesseract_text} ({tesseract_conf:.1f}%)")
-                else:
-                    print(f"Tesseract:   FAILED - '{tesseract_text}'")
-            except Exception as e:
-                print(f"Tesseract error: {e}")
-        
-        # If no OCR worked, return empty result
-        if not ocr_results:
-            return "NO-OCR", 0.0
-        
-        # Perform character-by-character comparison and validation
-        return self.analyze_ocr_results(ocr_results)
     
     def analyze_ocr_results(self, ocr_results):
         """Analyze OCR results with character comparison and validation.
@@ -842,20 +547,11 @@ class WorkingALPRSystem:
         # Apply preprocessing
         enhanced_image = self.enhance_plate_image(plate_image)
         
-        # Try Simple Plate OCR first
-        if hasattr(self, 'simple_ocr') and self.simple_ocr:
-            try:
-                text, confidence = self.simple_ocr.read_plate_simple(enhanced_image)
-                if text not in ["NO-OCR", "TOO-SMALL", "NOT-PLATE", "OCR-ERROR"] and len(text) >= 3:
-                    print(f"🔄 Simple-Plate-OCR: {text} ({confidence:.0f}%)")
-                    return text, confidence + 10
-            except Exception as e:
-                print(f"Simple OCR error: {e}")
+        # Simple Plate OCR not available
         
         # Multi-model fallback with enhanced PaddleOCR support
         ocr_methods = [
-            ("PaddleOCR 3.0.1", self.read_with_paddleocr_enhanced),
-            ("Tesseract", self.read_with_tesseract_enhanced)
+            ("PaddleOCR 3.0.1", self.read_with_paddleocr_enhanced)
         ]
         
         for method_name, method_func in ocr_methods:
@@ -1157,28 +853,93 @@ class WorkingALPRSystem:
         
         return "", 0.0
     
+    def detect_plates_by_contour(self, frame):
+        """Detect plates using contour analysis."""
+        plates = []
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Apply bilateral filter
+        filtered = cv2.bilateralFilter(gray, 11, 17, 17)
+        
+        # Find edges
+        edges = cv2.Canny(filtered, 30, 200)
+        
+        # Find contours
+        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+        
+        for contour in contours:
+            # Approximate contour
+            epsilon = 0.018 * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            
+            # Look for rectangular shapes (potential plates)
+            if len(approx) == 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                
+                # Check aspect ratio (Indian license plate ratio ~4:1)
+                if h > 0:
+                    aspect_ratio = w / h
+                    if 3.0 <= aspect_ratio <= 5.5 and w > 120 and h > 25:
+                        x = max(0, x)
+                        y = max(0, y)
+                        w = min(frame.shape[1] - x, w)
+                        h = min(frame.shape[0] - y, h)
+                        
+                        if w > 0 and h > 0:
+                            plate_img = frame[y:y+h, x:x+w]
+                            plates.append({
+                                'image': plate_img,
+                                'bbox': (x, y, w, h),
+                                'method': 'contour'
+                            })
+                    
+        return plates
+        
+    def enhance_plate_image(self, plate_image):
+        """Apply advanced preprocessing for better OCR accuracy."""
+        try:
+            if len(plate_image.shape) == 3:
+                gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = plate_image.copy()
+            
+            # Advanced preprocessing pipeline for license plates
+            # 1. Noise reduction with bilateral filter
+            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+            
+            # 2. Contrast enhancement with CLAHE
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(denoised)
+            
+            # 3. Morphological operations to enhance characters
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            enhanced = cv2.morphologyEx(enhanced, cv2.MORPH_CLOSE, kernel)
+            
+            # 4. Additional sharpening
+            kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            enhanced = cv2.filter2D(enhanced, -1, kernel_sharpen)
+            
+            # 5. Resize to optimal size for OCR (minimum height of 64 pixels)
+            height, width = enhanced.shape
+            if height < 64:
+                scale = 64 / height
+                new_width = int(width * scale)
+                enhanced = cv2.resize(enhanced, (new_width, 64), interpolation=cv2.INTER_CUBIC)
+            
+            # 6. Thresholding for better binarization
+            _, enhanced = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            return enhanced
+            
+        except Exception as e:
+            print(f"Image enhancement error: {e}")
+            return plate_image
+    
     def read_with_tesseract_enhanced(self, image):
         """Enhanced Tesseract method."""
-        if not TESSERACT_AVAILABLE:
-            return "", 0.0
-        
-        try:
-            from PIL import Image as PILImage
-            
-            if isinstance(image, np.ndarray):
-                pil_image = PILImage.fromarray(image)
-            else:
-                pil_image = image
-            
-            config = '--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-            text = pytesseract.image_to_string(pil_image, config=config).strip().upper()
-            clean_text = re.sub(r'[^A-Z0-9]', '', text)
-            confidence = 85.0 if len(clean_text) >= 5 else 60.0
-            
-            return clean_text, confidence
-        except Exception as e:
-            print(f"Tesseract error: {e}")
-        
         return "", 0.0
     
     def validate_plate_format(self, text):
@@ -1271,13 +1032,32 @@ class WorkingALPRSystem:
                 print(f"❌ Error deleting image {image_path}: {e}")
                 
     def process_frame(self, frame):
-        """Process frame for license plates."""
+        """Process frame for license plates with Raspberry Pi optimized performance."""
         results = []
         
-        # Detect plates
-        plates = self.detect_license_plates(frame)
+        # Quick validation
+        if frame is None or frame.size == 0:
+            return results
+            
+        # Resize frame for Raspberry Pi performance
+        max_height = 480  # Lower resolution for Pi
+        if frame.shape[0] > max_height:
+            scale = max_height / frame.shape[0]
+            new_width = int(frame.shape[1] * scale)
+            frame = cv2.resize(frame, (new_width, max_height))
         
-        for i, plate_data in enumerate(plates):
+        # Detect plates with timeout protection
+        try:
+            plates = self.detect_license_plates(frame)
+        except Exception as e:
+            print(f"Plate detection error: {e}")
+            return results
+        
+        # Limit processing to prevent frame dropping (Raspberry Pi optimization)
+        max_plates_to_process = 2  # Reduced from 3 for Pi
+        plates_to_process = plates[:max_plates_to_process]
+        
+        for i, plate_data in enumerate(plates_to_process):
             plate_img = plate_data['image']
             bbox = plate_data['bbox']
             method = plate_data['method']
@@ -1286,40 +1066,353 @@ class WorkingALPRSystem:
             if plate_img is None or plate_img.size == 0:
                 continue
                 
-            # Read plate text
-            plate_text, confidence = self.read_plate_text(plate_img)
+            # Quick check: skip very small plates (Raspberry Pi optimization)
+            if plate_img.shape[0] < 20 or plate_img.shape[1] < 50:
+                continue
             
-            # Enhanced validation for potentially valid plates
-            if self.is_potentially_valid_plate(plate_text, confidence):
-                # Save plate image to CCTV_photos directory
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                plate_filename = f"plate_{timestamp}_{i}.jpg"
-                plate_path = f"{self.image_storage_path}/{plate_filename}"
-                cv2.imwrite(plate_path, plate_img)
+            try:
+                # Read plate text with early termination for Raspberry Pi
+                plate_text, confidence = self.read_plate_text_raspberry_pi(plate_img)
                 
-                # Also save to detected_plates for backward compatibility
-                detected_plate_path = f"detected_plates/{plate_filename}"
-                cv2.imwrite(detected_plate_path, plate_img)
+                # Enhanced validation for potentially valid plates
+                if self.is_potentially_valid_plate(plate_text, confidence):
+                    # Save plate image to CCTV_photos directory
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    plate_filename = f"plate_{timestamp}_{i}.jpg"
+                    plate_path = f"{self.image_storage_path}/{plate_filename}"
+                    
+                    # Save with error handling
+                    try:
+                        cv2.imwrite(plate_path, plate_img)
+                        
+                        # Also save to detected_plates for backward compatibility
+                        detected_plate_path = f"detected_plates/{plate_filename}"
+                        cv2.imwrite(detected_plate_path, plate_img)
+                        
+                        # Delete images after processing if configured
+                        self.delete_image_if_configured(plate_path)
+                        self.delete_image_if_configured(detected_plate_path)
+                        
+                        results.append({
+                            'text': plate_text,
+                            'confidence': confidence,
+                            'bbox': bbox,
+                            'method': method,
+                            'image_path': plate_path
+                        })
+                        
+                        # Draw rectangle around plate
+                        x, y, w, h = bbox
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        cv2.putText(frame, f"{plate_text} ({confidence:.0f}%)", 
+                                   (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    except Exception as save_error:
+                        print(f"Error saving plate image: {save_error}")
+                        
+            except Exception as ocr_error:
+                print(f"OCR error for plate {i}: {ocr_error}")
+                continue
                 
-                # Delete images after processing if configured
-                self.delete_image_if_configured(plate_path)
-                self.delete_image_if_configured(detected_plate_path)
-                
-                results.append({
-                    'text': plate_text,
-                    'confidence': confidence,
-                    'bbox': bbox,
-                    'method': method,
-                    'image_path': plate_path
-                })
-                
-                # Draw rectangle around plate
-                x, y, w, h = bbox
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.putText(frame, f"{plate_text} ({confidence:.0f}%)", 
-                           (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                           
         return results
+    
+    def read_plate_text_raspberry_pi(self, plate_image):
+        """Optimized OCR method for Raspberry Pi with early termination."""
+        if plate_image is None or plate_image.size == 0:
+            return "EMPTY", 0.0
+        
+        # Run multiple OCR methods with early termination
+        ocr_results = []
+        
+        # Method 1: YOLO OCR (PRIMARY) - Early termination if high confidence
+        if YOLO_OCR_AVAILABLE and read_plate is not None:
+            try:
+                if YOLO_OCR_AVAILABLE:
+                    text, confidence = read_plate(plate_image)
+                    print(f"YOLO OCR raw result: '{text}' ({confidence:.1f}%)")
+                    if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"]:
+                        # Early termination for high confidence results
+                        if confidence > 85 and len(text) >= 5:
+                            print(f"YOLO OCR:    {text} ({confidence:.1f}%) - EARLY TERMINATION")
+                            return text, confidence
+                        
+                        if len(text) >= 4:
+                            ocr_results.append({
+                                'method': 'YOLO-OCR',
+                                'text': text,
+                                'confidence': confidence,
+                                'priority': 1
+                            })
+                            print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
+                    else:
+                        print(f"YOLO OCR:    FAILED - {text}")
+            except Exception as e:
+                print(f"YOLO OCR error: {e}")
+        
+        # Method 2: PaddleOCR - Only if YOLO didn't give high confidence
+        if self.paddle_ocr and (not ocr_results or ocr_results[0]['confidence'] < 80):
+            try:
+                paddle_text, paddle_conf = self.read_with_paddleocr_enhanced(plate_image)
+                if paddle_text and len(paddle_text) >= 4:
+                    # Early termination for high confidence results
+                    if paddle_conf > 85:
+                        print(f"PaddleOCR:   {paddle_text} ({paddle_conf:.1f}%) - EARLY TERMINATION")
+                        return paddle_text, paddle_conf
+                        
+                    ocr_results.append({
+                        'method': 'PaddleOCR',
+                        'text': paddle_text,
+                        'confidence': paddle_conf,
+                        'priority': 2
+                    })
+                    print(f"PaddleOCR:   {paddle_text} ({paddle_conf:.1f}%)")
+                else:
+                    print(f"PaddleOCR:   FAILED - '{paddle_text}'")
+            except Exception as e:
+                print(f"PaddleOCR error: {e}")
+        
+        # If no OCR worked, return empty result
+        if not ocr_results:
+            return "NO-OCR", 0.0
+        
+        # Perform character-by-character comparison and validation
+        return self.analyze_ocr_results(ocr_results)
+
+    def load_ai_models(self):
+        """Load YOLOv8 and PaddleOCR models."""
+        if YOLO_AVAILABLE and YOLO is not None:
+            try:
+                # Use YOLOv8 for vehicle detection
+                vehicle_model_path = 'models/yolov8n.pt'  # YOLOv8 model for vehicle detection
+                if os.path.exists(vehicle_model_path):
+                    self.yolo_model = YOLO(vehicle_model_path)
+                    print("✅ YOLOv8 Vehicle Detection model loaded")
+                else:
+                    # Fallback to general YOLO model
+                    self.yolo_model = YOLO('models/yolo11n.pt')
+                    print("⚠️  Using general YOLO model for vehicle detection")
+            except Exception as e:
+                print(f"❌ YOLO loading failed: {e}")
+                
+        if PADDLE_OCR_AVAILABLE and PaddleOCR is not None:
+            try:
+                # Enhanced PaddleOCR loading with ONNX support
+                print("🚀 Loading PaddleOCR with ONNX support...")
+                
+                # Check if ONNX models are available
+                onnx_det_model = 'models/onnx/det/PP-OCRv5_mobile_det_infer.onnx'
+                onnx_rec_model = 'models/onnx/rec/en_PP-OCRv4_mobile_rec_infer.onnx'
+                
+                paddle_ocr_config = {
+                    'lang': 'en',
+                    'use_onnx': True,  # Enable ONNX support
+                    'det_model_dir': onnx_det_model if os.path.exists(onnx_det_model) else None,
+                    'rec_model_dir': onnx_rec_model if os.path.exists(onnx_rec_model) else None,
+                    'use_textline_orientation': False,
+                }
+                
+                # Remove None values
+                paddle_ocr_config = {k: v for k, v in paddle_ocr_config.items() if v is not None}
+                
+                self.paddle_ocr = PaddleOCR(**paddle_ocr_config)
+                print("✅ PaddleOCR with ONNX support loaded")
+                
+            except Exception as e:
+                print(f"❌ PaddleOCR with ONNX loading failed: {e}")
+                # Fallback to default PaddleOCR
+                try:
+                    self.paddle_ocr = PaddleOCR(lang='en', use_textline_orientation=False)
+                    print("✅ PaddleOCR fallback model loaded")
+                except Exception as e2:
+                    print(f"❌ PaddleOCR fallback also failed: {e2}")
+                    self.paddle_ocr = None
+
+    def detect_vehicles_and_plates(self, frame):
+        """Detect vehicles using YOLOv8 and extract license plates."""
+        vehicles = []
+        
+        if self.yolo_model and YOLO_AVAILABLE and YOLO is not None:
+            try:
+                # YOLOv8 vehicle detection
+                results = self.yolo_model(frame, verbose=False)
+                for result in results:
+                    boxes = result.boxes
+                    if boxes is not None:
+                        for box in boxes:
+                            # Get class ID and confidence
+                            class_id = int(box.cls[0])
+                            confidence = float(box.conf[0])
+                            
+                            # Filter for vehicle classes (0: person, 1: bicycle, 2: car, 3: motorcycle, 5: bus, 7: truck)
+                            if class_id in [1, 2, 3, 5, 7]:
+                                # Extract bounding box coordinates
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                x, y, w, h = int(x1), int(y1), int(x2-x1), int(y2-y1)
+                                
+                                # Extract vehicle region
+                                if x >= 0 and y >= 0 and x + w <= frame.shape[1] and y + h <= frame.shape[0]:
+                                    vehicle_img = frame[y:y+h, x:x+w]
+                                    vehicles.append({
+                                        'image': vehicle_img,
+                                        'bbox': (x, y, w, h),
+                                        'class_id': class_id,
+                                        'confidence': confidence
+                                    })
+                                
+                print(f"  YOLOv8: {len(vehicles)} vehicles detected")
+            except Exception as e:
+                print(f"YOLOv8 detection error: {e}")
+        
+        return vehicles
+
+    def extract_plate_from_vehicle(self, vehicle_img):
+        """Extract license plate region from vehicle image using YOLO OCR."""
+        plates = []
+        
+        if YOLO_OCR_AVAILABLE and YOLO_AVAILABLE and YOLO is not None and read_plate is not None:
+            try:
+                # Use YOLO OCR model for plate detection within vehicle
+                plate_model_path = 'models/plate_ocr_yolo.pt'
+                if os.path.exists(plate_model_path):
+                    plate_model = YOLO(plate_model_path)
+                    results = plate_model(vehicle_img, verbose=False)
+                    
+                    for result in results:
+                        boxes = result.boxes
+                        if boxes is not None:
+                            for box in boxes:
+                                # Extract bounding box coordinates
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                x, y, w, h = int(x1), int(y1), int(x2-x1), int(y2-y1)
+                                
+                                # Extract plate region
+                                if x >= 0 and y >= 0 and x + w <= vehicle_img.shape[1] and y + h <= vehicle_img.shape[0]:
+                                    plate_img = vehicle_img[y:y+h, x:x+w]
+                                    plates.append({
+                                        'image': plate_img,
+                                        'bbox': (x, y, w, h)
+                                    })
+                                
+                    print(f"  YOLO OCR: {len(plates)} plates detected within vehicle")
+            except Exception as e:
+                print(f"YOLO OCR error: {e}")
+        
+        return plates
+
+    def read_plate_text(self, plate_image):
+        """Read license plate text using YOLO OCR and PaddleOCR with ONNX."""
+        if plate_image is None or plate_image.size == 0:
+            return "EMPTY", 0.0
+        
+        # Run multiple OCR methods
+        ocr_results = []
+        
+        print("\n🔍 RUNNING OCR COMPARISON:")
+        
+        # Method 1: YOLO OCR (PRIMARY)
+        if YOLO_OCR_AVAILABLE and read_plate is not None:
+            try:
+                text, confidence = read_plate(plate_image)
+                print(f"YOLO OCR raw result: '{text}' ({confidence:.1f}%)")
+                if text and text not in ["NO-YOLO", "NO-IMAGE", "NO-CHARS", "YOLO-ERROR", "NO-VALID-CHARS"] and len(text) >= 4:
+                    ocr_results.append({
+                        'method': 'YOLO-OCR',
+                        'text': text,
+                        'confidence': confidence,
+                        'priority': 1
+                    })
+                    print(f"YOLO OCR:    {text} ({confidence:.1f}%)")
+                else:
+                    print(f"YOLO OCR:    FAILED - {text}")
+            except Exception as e:
+                print(f"YOLO OCR error: {e}")
+        
+        # Method 2: PaddleOCR with ONNX
+        if self.paddle_ocr and PADDLE_OCR_AVAILABLE:
+            try:
+                # Preprocess image for better OCR
+                processed_image = self.enhance_plate_image(plate_image)
+                
+                # Run PaddleOCR
+                result = self.paddle_ocr.ocr(processed_image, cls=False)
+                if result and result[0]:
+                    # Extract text and confidence from PaddleOCR result
+                    paddle_text = ""
+                    total_conf = 0
+                    count = 0
+                    
+                    for line in result[0]:
+                        if line and len(line) >= 2:
+                            text_info = line[1]
+                            if text_info and len(text_info) >= 2:
+                                text = text_info[0]
+                                conf = text_info[1]
+                                paddle_text += text
+                                total_conf += conf
+                                count += 1
+                    
+                    if count > 0:
+                        avg_conf = (total_conf / count) * 100
+                        clean_text = re.sub(r'[^A-Z0-9]', '', paddle_text.upper())
+                        
+                        if len(clean_text) >= 4:
+                            ocr_results.append({
+                                'method': 'PaddleOCR-ONNX',
+                                'text': clean_text,
+                                'confidence': avg_conf,
+                                'priority': 2
+                            })
+                            print(f"PaddleOCR:   {clean_text} ({avg_conf:.1f}%)")
+                        else:
+                            print(f"PaddleOCR:   FAILED - '{clean_text}'")
+                else:
+                    print("PaddleOCR:   FAILED - No results")
+            except Exception as e:
+                print(f"PaddleOCR error: {e}")
+        
+        # If no OCR worked, return empty result
+        if not ocr_results:
+            return "NO-OCR", 0.0
+        
+        # Perform character-by-character comparison and validation
+        return self.analyze_ocr_results(ocr_results)
+
+    def detect_license_plates(self, frame):
+        """Detect license plates using YOLOv8 for vehicle detection and YOLO OCR for plate extraction."""
+        plates = []
+        print(f"🔍 Starting vehicle and plate detection on frame {frame.shape}")
+        
+        # Step 1: Detect vehicles using YOLOv8
+        vehicles = self.detect_vehicles_and_plates(frame)
+        
+        # Step 2: Extract plates from each vehicle
+        for i, vehicle_data in enumerate(vehicles):
+            vehicle_img = vehicle_data['image']
+            vehicle_bbox = vehicle_data['bbox']
+            
+            # Extract plates from vehicle
+            vehicle_plates = self.extract_plate_from_vehicle(vehicle_img)
+            
+            # Adjust plate coordinates to frame coordinates
+            for plate_data in vehicle_plates:
+                plate_img = plate_data['image']
+                plate_bbox = plate_data['bbox']
+                
+                # Convert relative coordinates to absolute frame coordinates
+                x, y, w, h = plate_bbox
+                vx, vy, vw, vh = vehicle_bbox
+                abs_x = vx + x
+                abs_y = vy + y
+                
+                plates.append({
+                    'image': plate_img,
+                    'bbox': (abs_x, abs_y, w, h),
+                    'method': 'yolo_v8_yolo_ocr'
+                })
+        
+        # Removed contour detection as per requirements
+        print(f"🎯 Total plates found: {len(plates)}")
+        
+        return plates
     
     def is_potentially_valid_plate(self, text, confidence):
         """Enhanced validation for potentially valid license plates."""
@@ -1441,7 +1534,7 @@ class WorkingALPRSystem:
                 "_partition": "default"
             }
             
-            if self.tracker and self.tracker.db:
+            if self.tracker is not None and self.tracker.db is not None:
                 result = self.tracker.db.entry_events.insert_one(event_data)
                 status = "👥 Employee" if is_employee else "✅ Entry"
                 flag = " 🚩 FLAGGED" if len(anomalies) > 0 else ""
@@ -1523,7 +1616,7 @@ class WorkingALPRSystem:
                 "_partition": "default"
             }
             
-            if self.tracker and self.tracker.db:
+            if self.tracker is not None and self.tracker.db is not None:
                 result = self.tracker.db.exit_events.insert_one(event_data)
                 status = "👥 Employee" if is_employee else "✅ Exit"
                 flag = " 🚩 FLAGGED" if len(anomalies) > 0 else ""
@@ -1538,7 +1631,7 @@ class WorkingALPRSystem:
     def attempt_journey_matching(self, event_data):
         """Attempt real-time journey matching."""
         try:
-            if not self.tracker or not self.tracker.db:
+            if self.tracker is None or self.tracker.db is None:
                 return
             
             # Use the tracker's real-time matching logic
@@ -1574,7 +1667,7 @@ class WorkingALPRSystem:
             return
         
         # Get database connection from main.py if tracker not available
-        if not self.tracker:
+        if self.tracker is None:
             try:
                 from pymongo import MongoClient
                 client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
@@ -1584,6 +1677,11 @@ class WorkingALPRSystem:
                 return
         else:
             db = self.tracker.db
+        
+        # Check if db is available
+        if db is None:
+            print("❌ Database connection failed")
+            return
             
         # Use best plate result
         best_plate = max(plate_results, key=lambda x: x['confidence'])
@@ -1644,20 +1742,24 @@ class WorkingALPRSystem:
         
         # Save to database
         try:
-            if event_type == "entry":
-                result = db.entry_events.insert_one(event_data)
-                status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
-                plate_type = plate_validation.get('type', 'unknown')
-                state_name = plate_validation.get('state_name', 'Unknown')
-                print(f"{status} Entry: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
+            if db is not None:
+                if event_type == "entry":
+                    result = db.entry_events.insert_one(event_data)
+                    status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
+                    plate_type = plate_validation.get('type', 'unknown')
+                    state_name = plate_validation.get('state_name', 'Unknown')
+                    print(f"{status} Entry: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
+                else:
+                    result = db.exit_events.insert_one(event_data)
+                    status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
+                    plate_type = plate_validation.get('type', 'unknown')
+                    state_name = plate_validation.get('state_name', 'Unknown')
+                    print(f"{status} Exit: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
+                    
+                return result
             else:
-                result = db.exit_events.insert_one(event_data)
-                status = "✅ Valid" if plate_validation['valid'] else "⚠️ Invalid"
-                plate_type = plate_validation.get('type', 'unknown')
-                state_name = plate_validation.get('state_name', 'Unknown')
-                print(f"{status} Exit: {best_plate['text']} ({best_plate['confidence']:.0f}%) - {plate_type} - {state_name}")
-                
-            return result
+                print("❌ Database connection failed")
+                return None
         except Exception as e:
             print(f"❌ Database save error: {e}")
             import traceback
